@@ -9,7 +9,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "clean": "rm -rf dist",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --noEmit",
     "vercel-build": "npm install --include=optional && npm run build"
   },
   "dependencies": {
@@ -38,5 +38,4 @@
     "typescript": "~5.8.2",
     "vite": "^6.2.0"
   },
-},
-
+}

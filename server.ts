@@ -1,4 +1,5 @@
 import express from "express";
+console.log("Server process starting at " + new Date().toISOString());
 import { createServer as createViteServer } from "vite";
 import { sql } from "@vercel/postgres";
 import { Resend } from "resend";
@@ -6,6 +7,15 @@ import path from "path";
 import dotenv from "dotenv";
 
 dotenv.config();
+
+// Handle unhandled rejections and exceptions to prevent silent crashes
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+});
+
+process.on('uncaughtException', (err) => {
+  console.error('Uncaught Exception:', err);
+});
 
 if (!process.env.POSTGRES_URL) {
   console.warn("POSTGRES_URL is missing. Database operations will fail. Please set it in the AI Studio Secrets panel.");
@@ -249,28 +259,34 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
 });
 
 async function startServer() {
-  // Vite middleware for development
-  if (process.env.NODE_ENV !== "production") {
-    const vite = await createViteServer({
-      server: { middlewareMode: true },
-      appType: "spa",
-    });
-    app.use(vite.middlewares);
-  } else {
-    const distPath = path.join(process.cwd(), "dist");
-    app.use(express.static(distPath));
-    app.get("*", (req, res) => {
-      res.sendFile(path.join(distPath, "index.html"));
-    });
-  }
+  try {
+    // Vite middleware for development
+    if (process.env.NODE_ENV !== "production") {
+      const vite = await createViteServer({
+        server: { middlewareMode: true },
+        appType: "spa",
+      });
+      app.use(vite.middlewares);
+    } else {
+      const distPath = path.join(process.cwd(), "dist");
+      app.use(express.static(distPath));
+      app.get("*", (req, res) => {
+        res.sendFile(path.join(distPath, "index.html"));
+      });
+    }
 
-  if (process.env.NODE_ENV !== "production" || !process.env.VERCEL) {
     app.listen(PORT, "0.0.0.0", () => {
       console.log(`Server running on http://localhost:${PORT}`);
     });
+  } catch (error) {
+    console.error("Critical error during server startup:", error);
+    process.exit(1);
   }
 }
 
-startServer();
+startServer().catch(err => {
+  console.error("Failed to start server (outer):", err);
+  process.exit(1);
+});
 
 export default app;

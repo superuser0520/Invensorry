@@ -7,6 +7,10 @@ import dotenv from "dotenv";
 
 dotenv.config();
 
+if (!process.env.POSTGRES_URL) {
+  console.warn("POSTGRES_URL is missing. Database operations will fail. Please set it in the AI Studio Secrets panel.");
+}
+
 const app = express();
 const PORT = 3000;
 
@@ -28,14 +32,27 @@ function getResend() {
 // API Routes
 
 // Health check
-app.get("/api/health", (req, res) => {
-  res.json({ status: "ok" });
+app.get("/api/health", async (req, res) => {
+  const hasPostgres = !!process.env.POSTGRES_URL;
+  const hasResend = !!process.env.RESEND_API_KEY;
+  res.json({ 
+    status: "ok", 
+    config: { 
+      postgres: hasPostgres, 
+      resend: hasResend 
+    } 
+  });
 });
 
 // Initialize database table
 app.post("/api/init-db", async (req, res) => {
   try {
-    console.log("Initializing database...");
+    console.log("Initializing database... POSTGRES_URL present:", !!process.env.POSTGRES_URL);
+    
+    if (!process.env.POSTGRES_URL) {
+      console.warn("POSTGRES_URL is missing. Database operations will fail.");
+      return res.status(500).json({ error: "POSTGRES_URL is missing" });
+    }
     
     try {
       await sql`
@@ -90,7 +107,9 @@ app.post("/api/init-db", async (req, res) => {
 // Get inventory
 app.get("/api/inventory", async (req, res) => {
   try {
+    console.log("Fetching inventory...");
     const { rows } = await sql`SELECT * FROM inv_items`;
+    console.log(`Fetched ${rows.length} items`);
     res.json(rows);
   } catch (error) {
     console.error("Error fetching inventory:", error);
@@ -102,6 +121,7 @@ app.get("/api/inventory", async (req, res) => {
 app.post("/api/inventory", async (req, res) => {
   try {
     const { id, name, category, status } = req.body;
+    console.log(`Adding/Updating item: ${id} (${name})`);
     await sql`
       INSERT INTO inv_items (id, name, category, status)
       VALUES (${id}, ${name}, ${category}, ${status})
@@ -148,6 +168,7 @@ app.get("/api/settings", async (req, res) => {
 app.post("/api/settings", async (req, res) => {
   try {
     const { key, value } = req.body;
+    console.log(`Updating setting: ${key} = ${value}`);
     await sql`
       INSERT INTO inv_settings (key, value)
       VALUES (${key}, ${value})
@@ -163,7 +184,9 @@ app.post("/api/settings", async (req, res) => {
 // Get orders
 app.get("/api/orders", async (req, res) => {
   try {
+    console.log("Fetching orders...");
     const { rows } = await sql`SELECT * FROM inv_orders ORDER BY date DESC LIMIT 3`;
+    console.log(`Fetched ${rows.length} orders`);
     res.json(rows);
   } catch (error) {
     console.error("Error fetching orders:", error);
@@ -175,6 +198,7 @@ app.get("/api/orders", async (req, res) => {
 app.post("/api/orders", async (req, res) => {
   try {
     const { id, itemName, itemId, date, status, supplierName, cost } = req.body;
+    console.log(`Adding order: ${id} for ${itemName}`);
     await sql`
       INSERT INTO inv_orders (id, "itemName", "itemId", date, status, "supplierName", cost)
       VALUES (${id}, ${itemName}, ${itemId}, ${date}, ${status}, ${supplierName}, ${cost})

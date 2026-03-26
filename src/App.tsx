@@ -38,7 +38,16 @@ export default function App() {
     const fetchData = async () => {
       try {
         // Initialize DB
-        await fetch('/api/init-db', { method: 'POST' });
+        const initRes = await fetch('/api/init-db', { method: 'POST' });
+        if (!initRes.ok) {
+          const errorData = await initRes.json();
+          if (errorData.error === "POSTGRES_URL is missing") {
+            toast.error("Database not configured. Please set POSTGRES_URL in Secrets.");
+            setInventory(initialData);
+            setIsLoading(false);
+            return;
+          }
+        }
         
         const [invRes, settingsRes, ordersRes] = await Promise.all([
           fetch('/api/inventory'),
@@ -52,6 +61,7 @@ export default function App() {
             setInventory(data);
           } else {
             // Seed initial data if empty
+            console.log("Database empty, seeding initial data...");
             for (const item of initialData) {
               await fetch('/api/inventory', {
                 method: 'POST',
@@ -61,6 +71,8 @@ export default function App() {
             }
             setInventory(initialData);
           }
+        } else {
+          throw new Error("Failed to fetch inventory");
         }
         
         if (settingsRes.ok) {
@@ -76,7 +88,7 @@ export default function App() {
         }
       } catch (error) {
         console.error("Failed to fetch data:", error);
-        toast.error("Failed to connect to database");
+        toast.error("Failed to connect to database. Using local data.");
         setInventory(initialData); // Fallback
       } finally {
         setIsLoading(false);
@@ -343,11 +355,16 @@ export default function App() {
     
     try {
       for (const item of newItems) {
-        await fetch('/api/inventory', {
+        const response = await fetch('/api/inventory', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(item)
         });
+        
+        if (!response.ok) {
+          const errorData = await response.json();
+          throw new Error(errorData.error || `Failed to save ${item.name}`);
+        }
       }
       
       setInventory(prev => [...prev, ...newItems]);
@@ -356,7 +373,7 @@ export default function App() {
       setActiveTab('inventory');
     } catch (error) {
       console.error("Failed to add items:", error);
-      toast.error("Failed to add items");
+      toast.error(error instanceof Error ? error.message : "Failed to add items");
     }
   };
 

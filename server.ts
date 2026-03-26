@@ -19,6 +19,8 @@ process.on('uncaughtException', (err) => {
 
 if (!process.env.POSTGRES_URL) {
   console.warn("POSTGRES_URL is missing. Database operations will fail. Please set it in the AI Studio Secrets panel.");
+} else if (process.env.POSTGRES_URL.includes("sslmode=require")) {
+  console.warn("SECURITY WARNING: Using 'sslmode=require' is deprecated for future 'pg' versions. Consider using 'sslmode=verify-full' for better security.");
 }
 
 const app = express();

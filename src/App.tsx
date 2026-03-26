@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { PackagePlus, CheckCircle, AlertTriangle, List, AlertCircle, Settings, Plus, ShoppingCart, Trash2, X, Link as LinkIcon, FileText, Shield, User, Cog, Wind, Zap, Lock } from 'lucide-react';
+import { PackagePlus, CheckCircle, AlertTriangle, List, AlertCircle, Settings, Plus, ShoppingCart, Trash2, X, Link as LinkIcon, FileText, Shield, User, Cog, Wind, Zap, Lock, QrCode } from 'lucide-react';
 import { Toaster, toast } from 'sonner';
+import { QRCodeCanvas } from 'qrcode.react';
 
 type Category = 'Mechanical' | 'Pneumatic' | 'Electrical';
 
@@ -34,6 +35,7 @@ export default function App() {
   const [isTestingEmail, setIsTestingEmail] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [dbConfig, setDbConfig] = useState<{ postgres: boolean; resend: boolean; isDeprecatedSsl: boolean }>({ postgres: false, resend: false, isDeprecatedSsl: false });
+  const [qrModal, setQrModal] = useState<{ isOpen: boolean; item: InventoryItem | null }>({ isOpen: false, item: null });
 
   // Helper to safely parse JSON from a response
   const safeJson = async (response: Response) => {
@@ -188,19 +190,21 @@ export default function App() {
               </table>
             `;
             
-            try {
-              await fetch('/api/send-report', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  to: adminEmail,
-                  subject: `Weekly Low Stock Report - ${dateStr}`,
-                  html: emailHtml
-                })
-              });
-              toast.success(`Weekly Low Stock Report sent to Admin (${lowStockItems.length} items).`);
-            } catch (error) {
-              console.error("Failed to send weekly report:", error);
+            if (adminEmail && dbConfig.resend) {
+              try {
+                await fetch('/api/send-report', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    to: adminEmail,
+                    subject: `Weekly Low Stock Report - ${dateStr}`,
+                    html: emailHtml
+                  })
+                });
+                toast.success(`Weekly Low Stock Report sent to Admin (${lowStockItems.length} items).`);
+              } catch (error) {
+                console.error("Failed to send weekly report:", error);
+              }
             }
           }
         }
@@ -226,7 +230,7 @@ export default function App() {
       toast.error(`Low stock reported for ${item.name}.`);
       
       // Send email if configured
-      if (adminEmail) {
+      if (adminEmail && dbConfig.resend) {
         await fetch('/api/send-report', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -242,6 +246,23 @@ export default function App() {
       console.error("Failed to update item:", error);
     }
   };
+
+  // Handle direct report from QR scan
+  useEffect(() => {
+    if (inventory.length === 0) return;
+
+    const params = new URLSearchParams(window.location.search);
+    const reportId = params.get('reportLowStock');
+    
+    if (reportId) {
+      const item = inventory.find(i => i.id === reportId);
+      if (item && item.status === 'Normal') {
+        handleReportLowStock(item);
+        // Clear param to prevent re-trigger on refresh
+        window.history.replaceState({}, '', window.location.pathname);
+      }
+    }
+  }, [inventory]);
 
   const handleRestock = async (item: InventoryItem) => {
     const updatedItem = { ...item, status: 'Normal' as const };
@@ -440,16 +461,20 @@ export default function App() {
           </table>
         `;
         
-        await fetch('/api/send-report', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            to: adminEmail,
-            subject: `Low Stock Report - ${reportDate}`,
-            html: emailHtml
-          })
-        });
-        toast.success("Email report sent to admin.");
+        if (adminEmail && dbConfig.resend) {
+          await fetch('/api/send-report', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              to: adminEmail,
+              subject: `Low Stock Report - ${reportDate}`,
+              html: emailHtml
+            })
+          });
+          toast.success("Email report sent to admin.");
+        } else if (adminEmail && !dbConfig.resend) {
+          toast.error("Email service not configured. Report not sent.");
+        }
       } catch (error) {
         console.error("Failed to send email report:", error);
         toast.error("Failed to send email report");
@@ -557,6 +582,11 @@ export default function App() {
   const handleTestEmail = async () => {
     if (!adminEmail) {
       toast.error("Please enter an email address first.");
+      return;
+    }
+
+    if (!dbConfig.resend) {
+      toast.error("Email service not configured. Please set RESEND_API_KEY in Secrets.");
       return;
     }
     
@@ -771,11 +801,11 @@ export default function App() {
                         )}
 
                         <button 
-                          onClick={() => handleCopyLink(item)}
-                          title="Copy Direct Report Link"
-                          className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold uppercase tracking-wider rounded-sm bg-slate-100 text-slate-500 hover:bg-slate-200 hover:text-slate-700 transition-colors border border-slate-200"
+                          onClick={() => setQrModal({ isOpen: true, item })}
+                          title="Generate Report QR Code"
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold uppercase tracking-wider rounded-sm bg-slate-100 text-slate-500 hover:bg-slate-200 hover:text-[#0055A4] transition-colors border border-slate-200"
                         >
-                          <LinkIcon className="w-3.5 h-3.5" />
+                          <QrCode className="w-3.5 h-3.5" />
                         </button>
 
                         {userRole === 'Admin' && (
@@ -846,10 +876,10 @@ export default function App() {
                   )}
                   
                   <button 
-                    onClick={() => handleCopyLink(item)}
-                    className="inline-flex justify-center items-center gap-1.5 px-3 py-2 text-xs font-bold uppercase tracking-wider rounded-sm bg-slate-100 text-slate-500 hover:bg-slate-200 transition-colors border border-slate-200"
+                    onClick={() => setQrModal({ isOpen: true, item })}
+                    className="inline-flex justify-center items-center gap-1.5 px-3 py-2 text-xs font-bold uppercase tracking-wider rounded-sm bg-slate-100 text-slate-500 hover:bg-slate-200 hover:text-[#0055A4] transition-colors border border-slate-200"
                   >
-                    <LinkIcon className="w-4 h-4" />
+                    <QrCode className="w-4 h-4" />
                   </button>
                   
                   {userRole === 'Admin' && (
@@ -1028,6 +1058,41 @@ export default function App() {
                         <span className="text-[10px] font-mono text-slate-400">PostgreSQL 15</span>
                       </div>
                     </div>
+
+                    <h3 className="text-[11px] font-bold uppercase tracking-widest text-slate-400 mb-4 flex items-center gap-2">
+                      <div className="w-1.5 h-1.5 bg-slate-300 rounded-full"></div>
+                      Communication Status
+                    </h3>
+                    <div className="bg-slate-50 border border-slate-200 rounded-sm p-4 space-y-3">
+                      <div className="flex justify-between items-center">
+                        <span className="text-[10px] font-bold text-slate-500 uppercase">Resend Service</span>
+                        <span className={`text-[10px] font-bold uppercase flex items-center gap-1 ${dbConfig.resend ? 'text-emerald-500' : 'text-amber-500'}`}>
+                          {dbConfig.resend ? (
+                            <>
+                              <CheckCircle className="w-2.5 h-2.5" />
+                              Configured
+                            </>
+                          ) : (
+                            <>
+                              <AlertCircle className="w-2.5 h-2.5" />
+                              Missing Key
+                            </>
+                          )}
+                        </span>
+                      </div>
+                      {!dbConfig.resend && (
+                        <div className="bg-amber-50 border border-amber-200 rounded-sm p-2 mt-2">
+                          <p className="text-[9px] text-amber-700 leading-tight">
+                            <strong>Action Required:</strong> RESEND_API_KEY is missing. 
+                            Set it in the AI Studio Secrets panel to enable email alerts.
+                          </p>
+                        </div>
+                      )}
+                      <div className="flex justify-between items-center">
+                        <span className="text-[10px] font-bold text-slate-500 uppercase">Provider</span>
+                        <span className="text-[10px] font-mono text-slate-400">Resend.com</span>
+                      </div>
+                    </div>
                     
                     <div className="pt-4">
                       <h3 className="text-[11px] font-bold uppercase tracking-widest text-slate-400 mb-3">Quick Actions</h3>
@@ -1093,6 +1158,62 @@ export default function App() {
           </div>
         ) : null}
       </main>
+
+      {/* QR Code Modal */}
+      {qrModal.isOpen && qrModal.item && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white border border-slate-200 rounded-sm shadow-2xl max-w-sm w-full p-8 relative text-center">
+            <button 
+              onClick={() => setQrModal({ isOpen: false, item: null })}
+              className="absolute top-4 right-4 text-slate-500 hover:text-slate-700 transition-colors"
+            >
+              <X className="w-5 h-5" />
+            </button>
+            <div className="bg-slate-50 p-6 rounded-sm border border-slate-100 inline-block mb-6">
+              <QRCodeCanvas 
+                value={`${window.location.origin}${window.location.pathname}?reportLowStock=${qrModal.item.id}`}
+                size={200}
+                level="H"
+                includeMargin={true}
+                imageSettings={{
+                  src: "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e3/Shimano_logo.svg/1200px-Shimano_logo.svg.png",
+                  x: undefined,
+                  y: undefined,
+                  height: 24,
+                  width: 80,
+                  excavate: true,
+                }}
+              />
+            </div>
+            <h3 className="text-lg font-black uppercase tracking-widest text-slate-900 mb-2">Report QR Code</h3>
+            <p className="text-xs text-slate-500 mb-6 uppercase tracking-widest font-bold">
+              {qrModal.item.id} — {qrModal.item.name}
+            </p>
+            <p className="text-[10px] text-slate-400 leading-relaxed">
+              Scan this code with any mobile device to instantly trigger a low-stock report for this specific component.
+            </p>
+            <div className="mt-8 pt-6 border-t border-slate-100">
+              <button 
+                onClick={() => {
+                  const canvas = document.querySelector('canvas');
+                  if (canvas) {
+                    const url = canvas.toDataURL("image/png");
+                    const link = document.createElement('a');
+                    link.download = `QR_${qrModal.item?.id}.png`;
+                    link.href = url;
+                    link.click();
+                    toast.success("QR code image downloaded.");
+                  }
+                }}
+                className="w-full px-5 py-3 text-[10px] font-black uppercase tracking-widest text-white bg-[#0055A4] hover:bg-[#004488] rounded-sm transition-colors flex items-center justify-center gap-2"
+              >
+                <FileText className="w-3 h-3" />
+                Export QR Image
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Admin PIN Modal */}
       {showAdminPinModal && (

@@ -2,6 +2,7 @@ import express from "express";
 console.log("Server process starting at " + new Date().toISOString());
 import { sql } from "@vercel/postgres";
 import { Resend } from "resend";
+import cron from "node-cron";
 import path from "path";
 import dotenv from "dotenv";
 
@@ -20,6 +21,10 @@ if (!process.env.POSTGRES_URL) {
   console.warn("POSTGRES_URL is missing. Database operations will fail. Please set it in the AI Studio Secrets panel.");
 } else if (process.env.POSTGRES_URL.includes("sslmode=require")) {
   console.warn("SECURITY WARNING: Using 'sslmode=require' is deprecated for future 'pg' versions. Consider using 'sslmode=verify-full' for better security.");
+}
+
+if (!process.env.RESEND_API_KEY) {
+  console.warn("RESEND_API_KEY is missing. Email alerts and test emails will not function. Please set it in the AI Studio Secrets panel.");
 }
 
 const app = express();
@@ -49,6 +54,72 @@ function getResend() {
   }
   return resend;
 }
+
+// Scheduled Weekly Report (Monday 8 AM)
+cron.schedule("0 8 * * 1", async () => {
+  console.log("Running scheduled weekly low stock report...");
+  try {
+    if (!process.env.POSTGRES_URL || !process.env.RESEND_API_KEY) {
+      console.warn("Skipping scheduled report: Database or Email service not configured.");
+      return;
+    }
+
+    // Fetch low stock items
+    const { rows: lowStockItems } = await sql`SELECT * FROM inv_items WHERE status = 'Low Stock'`;
+    
+    // Fetch admin email
+    const { rows: settings } = await sql`SELECT value FROM inv_settings WHERE key = 'adminEmail'`;
+    const adminEmail = settings[0]?.value;
+
+    if (lowStockItems.length > 0 && adminEmail) {
+      const dateStr = new Date().toLocaleDateString();
+      const emailHtml = `
+        <div style="font-family: sans-serif; border: 1px solid #e2e8f0; padding: 20px; max-width: 600px;">
+          <div style="background-color: #0055A4; padding: 15px; text-align: center; margin-bottom: 20px;">
+            <h1 style="color: white; margin: 0; text-transform: uppercase; letter-spacing: 3px; font-size: 20px; font-style: italic;">Invensorry Control</h1>
+            <p style="color: rgba(255,255,255,0.7); margin: 5px 0 0 0; font-size: 10px; text-transform: uppercase; letter-spacing: 2px;">Precision Engineering Ecosystem</p>
+          </div>
+          <h2 style="color: #0f172a; text-transform: uppercase; letter-spacing: 1px; font-size: 16px;">Weekly Low Stock Telemetry</h2>
+          <p style="color: #64748b; font-size: 14px;">The following items are currently marked as <strong>Low Stock</strong> as of ${dateStr}:</p>
+          <table style="width: 100%; border-collapse: collapse; margin-top: 20px; border: 1px solid #e2e8f0;">
+            <thead>
+              <tr style="background-color: #f8fafc; border-bottom: 2px solid #e2e8f0;">
+                <th style="text-align: left; padding: 12px; font-size: 11px; text-transform: uppercase; color: #64748b; letter-spacing: 1px;">ID</th>
+                <th style="text-align: left; padding: 12px; font-size: 11px; text-transform: uppercase; color: #64748b; letter-spacing: 1px;">Description</th>
+                <th style="text-align: left; padding: 12px; font-size: 11px; text-transform: uppercase; color: #64748b; letter-spacing: 1px;">Category</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${lowStockItems.map(i => `
+                <tr style="border-bottom: 1px solid #f1f5f9;">
+                  <td style="padding: 12px; font-size: 13px; font-family: monospace; color: #0055A4; font-weight: bold;">${i.id}</td>
+                  <td style="padding: 12px; font-size: 13px; color: #0f172a;">${i.name}</td>
+                  <td style="padding: 12px; font-size: 13px; color: #64748b;">${i.category}</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+          <div style="margin-top: 30px; padding-top: 20px; border-top: 1px solid #e2e8f0; text-align: center;">
+            <p style="font-size: 10px; color: #94a3b8; text-transform: uppercase; letter-spacing: 1px;">Shimano Style Precision Inventory Control - Automated System</p>
+          </div>
+        </div>
+      `;
+
+      const resendClient = getResend();
+      await resendClient.emails.send({
+        from: "InvenSorry <onboarding@resend.dev>",
+        to: [adminEmail],
+        subject: `Weekly Low Stock Report - ${dateStr}`,
+        html: emailHtml,
+      });
+      console.log("Scheduled weekly report sent successfully.");
+    } else {
+      console.log("No low stock items or admin email found. Skipping report.");
+    }
+  } catch (error) {
+    console.error("Error running scheduled report:", error);
+  }
+});
 
 // API Routes
 

@@ -26,7 +26,7 @@ export default function App() {
   const [inventory, setInventory] = useState<InventoryItem[]>([]);
   const [activeTab, setActiveTab] = useState<'inventory' | 'settings' | 'orders'>('inventory');
   const [bulkItemsText, setBulkItemsText] = useState('');
-  const [userRole, setUserRole] = useState<'Admin' | 'User'>('Admin');
+  const [userRole, setUserRole] = useState<'Admin' | 'User'>('User');
   const [selectedCategory, setSelectedCategory] = useState<Category>('Mechanical');
   const [filterCategory, setFilterCategory] = useState<Category | 'All'>('All');
   const [orderHistory, setOrderHistory] = useState<{ id: string; itemName: string; itemId: string; date: string; status: 'Pending' | 'Completed'; supplierName?: string; cost?: number }[]>([]);
@@ -528,7 +528,7 @@ export default function App() {
         <div className="bg-[#0055A4] p-2 rounded-sm">
           <PackagePlus className="w-6 h-6 text-white" />
         </div>
-        <h1 className="text-2xl font-black tracking-widest text-slate-900 uppercase italic">InvenSorry Control</h1>
+        <h1 className="text-2xl font-black tracking-widest text-slate-900 uppercase italic">Invensorry Control</h1>
         
         {/* Role Toggle */}
         <div className="ml-auto flex items-center gap-2 bg-slate-50 p-1.5 rounded-md border border-slate-200">

@@ -16,6 +16,16 @@ const PORT = 3000;
 
 app.use(express.json());
 
+// Middleware to check for database connection
+const checkDb = (req: express.Request, res: express.Response, next: express.NextFunction) => {
+  if (!process.env.POSTGRES_URL && req.path.startsWith('/api/') && req.path !== '/api/health' && req.path !== '/api/init-db') {
+    return res.status(503).json({ error: "Database not configured. Please set POSTGRES_URL in Secrets." });
+  }
+  next();
+};
+
+app.use(checkDb);
+
 // Initialize Resend
 let resend: Resend | null = null;
 function getResend() {
@@ -230,6 +240,12 @@ app.post("/api/send-report", async (req, res) => {
     console.error("Error sending email:", error);
     res.status(500).json({ error: error.message || "Failed to send email" });
   }
+});
+
+// Global error handler
+app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+  console.error("Unhandled error:", err);
+  res.status(500).json({ error: err.message || "An unexpected server error occurred" });
 });
 
 async function startServer() {

@@ -33,6 +33,7 @@ export default function App() {
   const [adminEmail, setAdminEmail] = useState('');
   const [isTestingEmail, setIsTestingEmail] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const [dbConfig, setDbConfig] = useState<{ postgres: boolean; resend: boolean; isDeprecatedSsl: boolean }>({ postgres: false, resend: false, isDeprecatedSsl: false });
 
   // Helper to safely parse JSON from a response
   const safeJson = async (response: Response) => {
@@ -60,11 +61,19 @@ export default function App() {
           }
         }
         
-        const [invRes, settingsRes, ordersRes] = await Promise.all([
+        const [invRes, settingsRes, ordersRes, healthRes] = await Promise.all([
           fetch('/api/inventory'),
           fetch('/api/settings'),
-          fetch('/api/orders')
+          fetch('/api/orders'),
+          fetch('/api/health')
         ]);
+        
+        if (healthRes.ok) {
+          const healthData = await safeJson(healthRes);
+          if (healthData.config) {
+            setDbConfig(healthData.config);
+          }
+        }
         
         if (invRes.ok) {
           const data = await safeJson(invRes);
@@ -602,7 +611,10 @@ export default function App() {
         <div className="bg-[#0055A4] p-2 rounded-sm">
           <PackagePlus className="w-6 h-6 text-white" />
         </div>
-        <h1 className="text-2xl font-black tracking-widest text-slate-900 uppercase italic">Invensorry Control</h1>
+        <div className="flex flex-col">
+          <h1 className="text-2xl font-black tracking-widest text-slate-900 uppercase italic leading-none">Invensorry Control</h1>
+          <span className="text-[8px] font-bold text-[#0055A4] uppercase tracking-[0.3em] mt-1">Precision Engineering Ecosystem</span>
+        </div>
         
         {/* Role Toggle */}
         <div className="ml-auto flex items-center gap-2 bg-slate-50 p-1.5 rounded-md border border-slate-200">
@@ -983,6 +995,30 @@ export default function App() {
                           Active
                         </span>
                       </div>
+                      <div className="flex justify-between items-center">
+                        <span className="text-[10px] font-bold text-slate-500 uppercase">SSL Mode</span>
+                        <span className={`text-[10px] font-bold uppercase flex items-center gap-1 ${dbConfig.isDeprecatedSsl ? 'text-amber-500' : 'text-emerald-500'}`}>
+                          {dbConfig.isDeprecatedSsl ? (
+                            <>
+                              <AlertTriangle className="w-2.5 h-2.5" />
+                              Deprecated
+                            </>
+                          ) : (
+                            <>
+                              <Shield className="w-2.5 h-2.5" />
+                              Secure
+                            </>
+                          )}
+                        </span>
+                      </div>
+                      {dbConfig.isDeprecatedSsl && (
+                        <div className="bg-amber-50 border border-amber-200 rounded-sm p-2 mt-2">
+                          <p className="text-[9px] text-amber-700 leading-tight">
+                            <strong>Action Required:</strong> Your connection uses 'sslmode=require'. 
+                            Update your POSTGRES_URL secret to use 'sslmode=verify-full' for enhanced security.
+                          </p>
+                        </div>
+                      )}
                       <div className="flex justify-between items-center">
                         <span className="text-[10px] font-bold text-slate-500 uppercase">Latency</span>
                         <span className="text-[10px] font-mono text-slate-400">14ms</span>

@@ -1,6 +1,5 @@
 import express from "express";
 console.log("Server process starting at " + new Date().toISOString());
-import { createServer as createViteServer } from "vite";
 import { sql } from "@vercel/postgres";
 import { Resend } from "resend";
 import path from "path";
@@ -57,11 +56,13 @@ function getResend() {
 app.get("/api/health", async (req, res) => {
   const hasPostgres = !!process.env.POSTGRES_URL;
   const hasResend = !!process.env.RESEND_API_KEY;
+  const isDeprecatedSsl = process.env.POSTGRES_URL?.includes("sslmode=require") || false;
   res.json({ 
     status: "ok", 
     config: { 
       postgres: hasPostgres, 
-      resend: hasResend 
+      resend: hasResend,
+      isDeprecatedSsl
     } 
   });
 });
@@ -264,6 +265,7 @@ async function startServer() {
   try {
     // Vite middleware for development
     if (process.env.NODE_ENV !== "production") {
+      const { createServer: createViteServer } = await import("vite");
       const vite = await createViteServer({
         server: { middlewareMode: true },
         appType: "spa",

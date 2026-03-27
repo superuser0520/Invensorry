@@ -395,7 +395,7 @@ app.get("/api/orders", async (req, res) => {
 });
 
 // Delete order
-app.delete("/api/orders/:id", rateLimitMiddleware, async (req, res) => {
+app.delete("/api/orders/:id", async (req, res) => {
   try {
     const { id } = req.params;
     console.log(`Deleting order: ${id}`);

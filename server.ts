@@ -323,6 +323,40 @@ app.get("/api/quick-report/:id", async (req, res) => {
     }
 
     const item = rows[0];
+
+    if (item.status === 'Ordering') {
+      const { rows: orderRows } = await sql`SELECT * FROM inv_orders WHERE "itemId" = ${id} AND status = 'Pending' ORDER BY date DESC LIMIT 1`;
+      const order = orderRows[0];
+      
+      res.send(`
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <title>Order Status</title>
+          <style>
+            body { font-family: system-ui, sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; background-color: #f8fafc; color: #0f172a; text-align: center; padding: 20px; }
+            .icon { font-size: 64px; margin-bottom: 16px; }
+            .details { text-align: left; margin-top: 20px; background: white; padding: 20px; border-radius: 8px; border: 1px solid #e2e8f0; width: 100%; max-width: 300px; }
+            .btn { margin-top: 24px; padding: 12px 24px; background-color: #0055A4; color: white; text-decoration: none; border-radius: 4px; font-weight: bold; text-transform: uppercase; letter-spacing: 1px; }
+          </style>
+        </head>
+        <body>
+          <div class="icon">📦</div>
+          <h2>Item is on Order</h2>
+          <p>This item is currently being ordered.</p>
+          <div class="details">
+            <p><strong>Order Date:</strong> ${order ? order.date : 'N/A'}</p>
+            <p><strong>Supplier:</strong> ${order ? (order.supplierName || 'N/A') : 'N/A'}</p>
+            <p><strong>Price:</strong> $${order && order.cost ? Number(order.cost).toFixed(2) : 'N/A'}</p>
+          </div>
+          <a href="/" class="btn">Back to System</a>
+        </body>
+        </html>
+      `);
+      return;
+    }
+
     if (item.status !== 'Low Stock') {
       await sql`UPDATE inv_items SET status = 'Low Stock' WHERE id = ${id}`;
 

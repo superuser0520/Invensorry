@@ -243,7 +243,7 @@ export default function App() {
         if (!response.ok) throw new Error('Failed to bulk delete orders');
       }
       
-      setOrders(orders.filter(o => !deleteOrderModal.orderIds.includes(o.id)));
+      setOrderHistory(orderHistory.filter(o => !deleteOrderModal.orderIds.includes(o.id)));
       setSelectedOrderIds(new Set());
       setDeleteOrderModal({ isOpen: false, orderIds: [] });
       toast.success(deleteOrderModal.orderIds.length > 1 ? 'Order records deleted successfully' : 'Order record deleted successfully');
@@ -443,6 +443,29 @@ export default function App() {
     if (names.length === 0) return;
     setIsProcessing(true);
     
+    const uniqueNames: string[] = [];
+    const duplicates: string[] = [];
+    
+    names.forEach(name => {
+      const isDuplicate = inventory.some(item => item.name.toLowerCase() === name.toLowerCase()) || 
+                          uniqueNames.some(n => n.toLowerCase() === name.toLowerCase());
+      if (isDuplicate) {
+        duplicates.push(name);
+      } else {
+        uniqueNames.push(name);
+      }
+    });
+
+    if (duplicates.length > 0) {
+      toast.warning(`Skipped ${duplicates.length} duplicate item(s).`);
+    }
+
+    if (uniqueNames.length === 0) {
+      setIsProcessing(false);
+      setBulkItemsText('');
+      return;
+    }
+    
     let maxId = 0;
     inventory.forEach(item => {
       const match = item.id.match(/-(\d+)/);
@@ -454,7 +477,7 @@ export default function App() {
     
     const prefix = selectedCategory === 'Mechanical' ? 'MEC' : selectedCategory === 'Pneumatic' ? 'PNE' : 'ELE';
     
-    const newItems: InventoryItem[] = names.map((name, index) => ({
+    const newItems: InventoryItem[] = uniqueNames.map((name, index) => ({
       id: `${prefix}-${String(maxId + 1 + index).padStart(3, '0')}`,
       name,
       status: 'Normal',
@@ -673,7 +696,7 @@ export default function App() {
               <p>This is a test alert from your Inventory Management System.</p>
               <p>Status: <strong>Operational</strong></p>
               <hr style="border: 0; border-top: 1px solid #e2e8f0; margin: 20px 0;" />
-              <p style="font-size: 12px; color: #64748b;">Precision Engineering Inventory Control</p>
+              <p style="font-size: 12px; color: #64748b;">Production Engineering Inventory Control</p>
             </div>
           `
         })
@@ -740,7 +763,7 @@ export default function App() {
         </div>
         <div className="flex flex-col">
           <h1 className="text-2xl font-black tracking-widest text-slate-900 uppercase italic leading-none">Invensorry Control</h1>
-          <span className="text-[8px] font-bold text-[#0055A4] uppercase tracking-[0.3em] mt-1">Precision Engineering Ecosystem</span>
+          <span className="text-[8px] font-bold text-[#0055A4] uppercase tracking-[0.3em] mt-1">Production Engineering Ecosystem</span>
         </div>
         
         {/* Role Toggle & Tutorial */}
@@ -1082,6 +1105,7 @@ export default function App() {
                           outerRadius={80}
                           paddingAngle={5}
                           dataKey="value"
+                          label={({ percent, value }) => `${value} (${(percent * 100).toFixed(0)}%)`}
                         >
                           {frequencyData.map((entry, index) => (
                             <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
@@ -1114,6 +1138,7 @@ export default function App() {
                             outerRadius={80}
                             paddingAngle={5}
                             dataKey="value"
+                            label={({ percent, value }) => `$${value.toFixed(2)} (${(percent * 100).toFixed(0)}%)`}
                           >
                             {costData.map((entry, index) => (
                               <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />

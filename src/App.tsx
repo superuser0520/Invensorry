@@ -132,7 +132,8 @@ export default function App() {
 
   // Delete Modal State
   const [deleteModal, setDeleteModal] = useState<{ isOpen: boolean; itemIds: string[] }>({ isOpen: false, itemIds: [] });
-  const [deleteOrderModal, setDeleteOrderModal] = useState<{ isOpen: boolean; orderId: string | null }>({ isOpen: false, orderId: null });
+  const [deleteOrderModal, setDeleteOrderModal] = useState<{ isOpen: boolean; orderIds: string[] }>({ isOpen: false, orderIds: [] });
+  const [selectedOrderIds, setSelectedOrderIds] = useState<Set<string>>(new Set());
 
   // Order Modal State
   const [orderModal, setOrderModal] = useState<{ isOpen: boolean; item: InventoryItem | null; supplierName: string; cost: string }>({ isOpen: false, item: null, supplierName: '', cost: '' });
@@ -224,24 +225,31 @@ export default function App() {
   }, [inventory, adminEmail]);
 
   const confirmDeleteOrder = async () => {
-    if (!deleteOrderModal.orderId || isProcessing) return;
+    if (deleteOrderModal.orderIds.length === 0 || isProcessing) return;
     setIsProcessing(true);
     
     try {
-      const response = await fetch(`/api/orders/${deleteOrderModal.orderId}`, {
-        method: 'DELETE',
-      });
-      
-      if (!response.ok) {
-        throw new Error('Failed to delete order');
+      if (deleteOrderModal.orderIds.length === 1) {
+        const response = await fetch(`/api/orders/${deleteOrderModal.orderIds[0]}`, {
+          method: 'DELETE',
+        });
+        if (!response.ok) throw new Error('Failed to delete order');
+      } else {
+        const response = await fetch('/api/orders/bulk-delete', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ids: deleteOrderModal.orderIds })
+        });
+        if (!response.ok) throw new Error('Failed to bulk delete orders');
       }
       
-      setOrders(orders.filter(o => o.id !== deleteOrderModal.orderId));
-      setDeleteOrderModal({ isOpen: false, orderId: null });
-      toast.success('Order record deleted successfully');
+      setOrders(orders.filter(o => !deleteOrderModal.orderIds.includes(o.id)));
+      setSelectedOrderIds(new Set());
+      setDeleteOrderModal({ isOpen: false, orderIds: [] });
+      toast.success(deleteOrderModal.orderIds.length > 1 ? 'Order records deleted successfully' : 'Order record deleted successfully');
     } catch (error) {
       console.error('Error deleting order:', error);
-      toast.error('Failed to delete order record');
+      toast.error('Failed to delete order record(s)');
     } finally {
       setIsProcessing(false);
     }
@@ -454,17 +462,15 @@ export default function App() {
     }));
     
     try {
-      for (const item of newItems) {
-        const response = await fetch('/api/inventory', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(item)
-        });
-        
-        if (!response.ok) {
-          const errorData = await safeJson(response);
-          throw new Error(errorData.error || `Failed to save ${item.name}`);
-        }
+      const response = await fetch('/api/inventory/bulk-add', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ items: newItems })
+      });
+      
+      if (!response.ok) {
+        const errorData = await safeJson(response);
+        throw new Error(errorData.error || `Failed to save items`);
       }
       
       setInventory(prev => [...prev, ...newItems]);
@@ -1143,11 +1149,43 @@ export default function App() {
                   No orders have been placed in the last year.
                 </div>
               ) : (
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left border-collapse">
-                    <thead>
-                      <tr className="bg-slate-50 border-b border-slate-200 text-xs font-bold text-slate-500 uppercase tracking-widest">
-                        <th className="p-5">Order ID</th>
+                <>
+                  {/* Bulk Actions Bar for Orders */}
+                  {selectedOrderIds.size > 0 && userRole === 'Admin' && (
+                    <div className="bg-slate-100 border-b border-slate-200 p-3 flex items-center justify-between">
+                      <span className="text-sm font-bold text-slate-700">{selectedOrderIds.size} orders selected</span>
+                      <div className="flex gap-2">
+                        <button 
+                          onClick={() => setDeleteOrderModal({ isOpen: true, orderIds: Array.from(selectedOrderIds) })} 
+                          className="px-3 py-1.5 bg-rose-600 text-white text-xs font-bold uppercase rounded-sm hover:bg-rose-700 flex items-center gap-2"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                          Delete Selected
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left border-collapse">
+                      <thead>
+                        <tr className="bg-slate-50 border-b border-slate-200 text-xs font-bold text-slate-500 uppercase tracking-widest">
+                          {userRole === 'Admin' && (
+                            <th className="p-5 w-12">
+                              <input 
+                                type="checkbox" 
+                                className="w-4 h-4 rounded-sm border-slate-300 text-[#0055A4] focus:ring-[#0055A4]"
+                                checked={selectedOrderIds.size === recentOrders.length && recentOrders.length > 0}
+                                onChange={(e) => {
+                                  if (e.target.checked) {
+                                    setSelectedOrderIds(new Set(recentOrders.map(o => o.id)));
+                                  } else {
+                                    setSelectedOrderIds(new Set());
+                                  }
+                                }}
+                              />
+                            </th>
+                          )}
+                          <th className="p-5">Order ID</th>
                         <th className="p-5">Date & Time</th>
                         <th className="p-5">Item</th>
                         <th className="p-5">Cost</th>
@@ -1157,7 +1195,25 @@ export default function App() {
                     </thead>
                     <tbody className="divide-y divide-slate-200">
                       {recentOrders.map((order) => (
-                        <tr key={order.id} className="hover:bg-slate-50 transition-colors">
+                        <tr key={order.id} className={`hover:bg-slate-50 transition-colors ${selectedOrderIds.has(order.id) ? 'bg-slate-50' : ''}`}>
+                          {userRole === 'Admin' && (
+                            <td className="p-5 w-12">
+                              <input 
+                                type="checkbox" 
+                                className="w-4 h-4 rounded-sm border-slate-300 text-[#0055A4] focus:ring-[#0055A4]"
+                                checked={selectedOrderIds.has(order.id)}
+                                onChange={(e) => {
+                                  const newSet = new Set(selectedOrderIds);
+                                  if (e.target.checked) {
+                                    newSet.add(order.id);
+                                  } else {
+                                    newSet.delete(order.id);
+                                  }
+                                  setSelectedOrderIds(newSet);
+                                }}
+                              />
+                            </td>
+                          )}
                           <td className="p-5 font-mono text-sm text-slate-500">{order.id}</td>
                           <td className="p-5 text-sm text-slate-500">{order.date}</td>
                           <td className="p-5 text-slate-900 font-medium">
@@ -1185,7 +1241,7 @@ export default function App() {
                           {userRole === 'Admin' && (
                             <td className="p-5 text-right">
                               <button 
-                                onClick={() => setDeleteOrderModal({ isOpen: true, orderId: order.id })}
+                                onClick={() => setDeleteOrderModal({ isOpen: true, orderIds: [order.id] })}
                                 className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-sm transition-colors"
                                 title="Delete Order Record"
                               >
@@ -1198,6 +1254,7 @@ export default function App() {
                     </tbody>
                   </table>
                 </div>
+                </>
               )}
             </div>
           </div>
@@ -1761,21 +1818,21 @@ export default function App() {
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4 print:hidden">
           <div className="bg-white border border-slate-200 rounded-sm shadow-2xl max-w-sm w-full p-6 relative">
             <button 
-              onClick={() => setDeleteOrderModal({ isOpen: false, orderId: null })}
+              onClick={() => setDeleteOrderModal({ isOpen: false, orderIds: [] })}
               className="absolute top-4 right-4 text-slate-500 hover:text-slate-700 transition-colors"
             >
               <X className="w-5 h-5" />
             </button>
             <h3 className="text-lg font-black uppercase tracking-widest text-slate-900 mb-2 flex items-center gap-2">
               <AlertTriangle className="w-5 h-5 text-rose-600" />
-              Delete Order
+              Delete Order{deleteOrderModal.orderIds.length > 1 ? 's' : ''}
             </h3>
             <p className="text-slate-600 text-sm mb-6 leading-relaxed">
-              Are you sure you want to delete this order record? This action cannot be undone and will affect order analysis.
+              Are you sure you want to delete {deleteOrderModal.orderIds.length > 1 ? `these ${deleteOrderModal.orderIds.length} order records` : 'this order record'}? This action cannot be undone and will affect order analysis.
             </p>
             <div className="flex justify-end gap-3">
               <button 
-                onClick={() => setDeleteOrderModal({ isOpen: false, orderId: null })}
+                onClick={() => setDeleteOrderModal({ isOpen: false, orderIds: [] })}
                 className="px-5 py-2.5 text-xs font-bold uppercase tracking-widest text-slate-500 bg-slate-100 hover:bg-slate-200 rounded-sm transition-colors"
               >
                 Cancel

@@ -283,6 +283,28 @@ app.post("/api/inventory/bulk-delete", async (req, res) => {
   }
 });
 
+app.post("/api/inventory/bulk-add", async (req, res) => {
+  try {
+    const { items } = req.body;
+    if (Array.isArray(items) && items.length > 0) {
+      for (const item of items) {
+        await sql`
+          INSERT INTO inv_items (id, name, status, category)
+          VALUES (${item.id}, ${item.name}, ${item.status}, ${item.category})
+          ON CONFLICT (id) DO UPDATE SET
+            name = EXCLUDED.name,
+            status = EXCLUDED.status,
+            category = EXCLUDED.category
+        `;
+      }
+    }
+    res.json({ message: "Items added successfully" });
+  } catch (error) {
+    console.error("Error bulk adding items:", error);
+    res.status(500).json({ error: "Failed to add items" });
+  }
+});
+
 // Quick Report Endpoint (Fast QR Scan)
 app.get("/api/quick-report/:id", async (req, res) => {
   try {
@@ -404,6 +426,22 @@ app.delete("/api/orders/:id", async (req, res) => {
   } catch (error) {
     console.error("Error deleting order:", error);
     res.status(500).json({ error: "Failed to delete order" });
+  }
+});
+
+// Bulk delete orders
+app.post("/api/orders/bulk-delete", async (req, res) => {
+  try {
+    const { ids } = req.body;
+    if (Array.isArray(ids) && ids.length > 0) {
+      for (const id of ids) {
+        await sql`DELETE FROM inv_orders WHERE id = ${id}`;
+      }
+    }
+    res.json({ message: "Orders deleted successfully" });
+  } catch (error) {
+    console.error("Error bulk deleting orders:", error);
+    res.status(500).json({ error: "Failed to delete orders" });
   }
 });
 

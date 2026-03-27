@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { PackagePlus, CheckCircle, AlertTriangle, List, AlertCircle, Settings, Plus, ShoppingCart, Trash2, X, Link as LinkIcon, FileText, Shield, User, Cog, Wind, Zap, Lock, QrCode } from 'lucide-react';
+import { PackagePlus, CheckCircle, AlertTriangle, List, AlertCircle, Settings, Plus, ShoppingCart, Trash2, X, Link as LinkIcon, FileText, Shield, User, Cog, Wind, Zap, Lock, QrCode, PieChart as PieChartIcon, BarChart3 } from 'lucide-react';
 import { Toaster, toast } from 'sonner';
 import { QRCodeCanvas } from 'qrcode.react';
+import { PieChart, Pie, Cell, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 
 type Category = 'Mechanical' | 'Pneumatic' | 'Electrical';
 
@@ -36,6 +37,8 @@ export default function App() {
   const [isLoading, setIsLoading] = useState(true);
   const [dbConfig, setDbConfig] = useState<{ postgres: boolean; resend: boolean; isDeprecatedSsl: boolean }>({ postgres: false, resend: false, isDeprecatedSsl: false });
   const [qrModal, setQrModal] = useState<{ isOpen: boolean; item: InventoryItem | null }>({ isOpen: false, item: null });
+  const [selectedItemIds, setSelectedItemIds] = useState<Set<string>>(new Set());
+  const [isProcessing, setIsProcessing] = useState(false);
 
   // Helper to safely parse JSON from a response
   const safeJson = async (response: Response) => {
@@ -128,7 +131,7 @@ export default function App() {
   const [adminPinInput, setAdminPinInput] = useState('');
 
   // Delete Modal State
-  const [deleteModal, setDeleteModal] = useState<{ isOpen: boolean; itemId: string | null }>({ isOpen: false, itemId: null });
+  const [deleteModal, setDeleteModal] = useState<{ isOpen: boolean; itemIds: string[] }>({ isOpen: false, itemIds: [] });
 
   // Order Modal State
   const [orderModal, setOrderModal] = useState<{ isOpen: boolean; item: InventoryItem | null; supplierName: string; cost: string }>({ isOpen: false, item: null, supplierName: '', cost: '' });
@@ -214,6 +217,8 @@ export default function App() {
   }, [inventory, adminEmail]);
 
   const handleReportLowStock = async (item: InventoryItem) => {
+    if (isProcessing) return;
+    setIsProcessing(true);
     const updatedItem = { ...item, status: 'Low Stock' as const };
     
     setInventory(prev => prev.map(invItem => 
@@ -244,6 +249,8 @@ export default function App() {
       }
     } catch (error) {
       console.error("Failed to update item:", error);
+    } finally {
+      setIsProcessing(false);
     }
   };
 
@@ -265,6 +272,8 @@ export default function App() {
   }, [inventory]);
 
   const handleRestock = async (item: InventoryItem) => {
+    if (isProcessing) return;
+    setIsProcessing(true);
     const updatedItem = { ...item, status: 'Normal' as const };
     
     setInventory(prev => prev.map(invItem => 
@@ -298,6 +307,8 @@ export default function App() {
       toast.success(`Restocked ${item.name}. Status is now Normal.`);
     } catch (error) {
       console.error("Failed to restock item:", error);
+    } finally {
+      setIsProcessing(false);
     }
   };
 
@@ -307,7 +318,8 @@ export default function App() {
 
   const confirmOrder = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!orderModal.item) return;
+    if (!orderModal.item || isProcessing) return;
+    setIsProcessing(true);
     
     const item = orderModal.item;
     const costNum = parseFloat(orderModal.cost);
@@ -343,7 +355,7 @@ export default function App() {
       
       setOrderHistory(prev => {
         const updated = [newOrder, ...prev];
-        return updated.slice(0, 3);
+        return updated; // Keep full history
       });
       toast.success(`Item ${item.name} is now ordering (pending arrival).`);
     } catch (error) {
@@ -351,32 +363,46 @@ export default function App() {
       toast.error("Failed to place order");
     } finally {
       setOrderModal({ isOpen: false, item: null, supplierName: '', cost: '' });
+      setIsProcessing(false);
     }
   };
 
   const handleDeleteClick = (item: InventoryItem) => {
-    setDeleteModal({ isOpen: true, itemId: item.id });
+    setDeleteModal({ isOpen: true, itemIds: [item.id] });
   };
 
   const confirmDelete = async () => {
-    if (!deleteModal.itemId) return;
+    if (deleteModal.itemIds.length === 0 || isProcessing) return;
+    setIsProcessing(true);
     
     try {
-      await fetch(`/api/inventory/${deleteModal.itemId}`, { method: 'DELETE' });
-      setInventory(prev => prev.filter(item => item.id !== deleteModal.itemId));
-      toast.success('Item deleted successfully.');
+      if (deleteModal.itemIds.length === 1) {
+        await fetch(`/api/inventory/${deleteModal.itemIds[0]}`, { method: 'DELETE' });
+      } else {
+        await fetch('/api/inventory/bulk-delete', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ids: deleteModal.itemIds })
+        });
+      }
+      setInventory(prev => prev.filter(item => !deleteModal.itemIds.includes(item.id)));
+      setSelectedItemIds(new Set());
+      toast.success(deleteModal.itemIds.length > 1 ? 'Items deleted successfully.' : 'Item deleted successfully.');
     } catch (error) {
-      console.error("Failed to delete item:", error);
-      toast.error("Failed to delete item");
+      console.error("Failed to delete item(s):", error);
+      toast.error("Failed to delete item(s)");
     } finally {
-      setDeleteModal({ isOpen: false, itemId: null });
+      setDeleteModal({ isOpen: false, itemIds: [] });
+      setIsProcessing(false);
     }
   };
 
   const handleBulkAdd = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isProcessing) return;
     const names = bulkItemsText.split('\n').map(n => n.trim()).filter(n => n);
     if (names.length === 0) return;
+    setIsProcessing(true);
     
     let maxId = 0;
     inventory.forEach(item => {
@@ -417,6 +443,8 @@ export default function App() {
     } catch (error) {
       console.error("Failed to add items:", error);
       toast.error(error instanceof Error ? error.message : "Failed to add items");
+    } finally {
+      setIsProcessing(false);
     }
   };
 
@@ -427,9 +455,12 @@ export default function App() {
   };
 
   const handleManualReport = async () => {
+    if (isProcessing) return;
+    setIsProcessing(true);
     const lowStockItems = inventory.filter(i => i.status === 'Low Stock');
     if (lowStockItems.length === 0) {
       toast.info("No items are currently low on stock.");
+      setIsProcessing(false);
       return;
     }
     
@@ -500,6 +531,7 @@ export default function App() {
     document.body.removeChild(link);
     
     toast.success(`Report downloaded as Excel (CSV)! (${lowStockItems.length} items)`);
+    setIsProcessing(false);
   };
 
   const handleGenerateOrderReport = () => {
@@ -624,6 +656,33 @@ export default function App() {
     }
   };
 
+  // Calculate Order Analysis Data
+  const oneYearAgo = new Date();
+  oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
+  const recentOrders = orderHistory.filter(o => {
+    const d = new Date(o.date);
+    return !isNaN(d.getTime()) ? d >= oneYearAgo : true; // Fallback if date parsing fails
+  });
+
+  const frequencyData: { name: string; value: number }[] = [];
+  const costData: { name: string; value: number }[] = [];
+  
+  const grouped = recentOrders.reduce((acc: Record<string, { count: number; cost: number }>, order) => {
+    if (!acc[order.itemName]) acc[order.itemName] = { count: 0, cost: 0 };
+    acc[order.itemName].count += 1;
+    acc[order.itemName].cost += Number(order.cost) || 0;
+    return acc;
+  }, {});
+
+  Object.entries(grouped as Record<string, { count: number; cost: number }>).forEach(([name, data]) => {
+    frequencyData.push({ name, value: data.count });
+    if (data.cost > 0) {
+      costData.push({ name, value: data.cost });
+    }
+  });
+
+  const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884d8', '#f26a8d', '#0055A4', '#e11d48'];
+
   if (isLoading) {
     return (
       <div className="min-h-screen bg-slate-50 flex items-center justify-center">
@@ -699,10 +758,11 @@ export default function App() {
         {activeTab === 'inventory' && userRole === 'Admin' && (
           <button
             onClick={handleManualReport}
-            className="inline-flex items-center gap-2 px-4 py-2 text-xs font-bold uppercase tracking-wider text-[#0055A4] bg-[#0055A4]/10 hover:bg-[#0055A4]/20 rounded-sm transition-colors border border-[#0055A4]/30"
+            disabled={isProcessing}
+            className="inline-flex items-center gap-2 px-4 py-2 text-xs font-bold uppercase tracking-wider text-[#0055A4] bg-[#0055A4]/10 hover:bg-[#0055A4]/20 rounded-sm transition-colors border border-[#0055A4]/30 disabled:opacity-50"
           >
             <FileText className="w-4 h-4" />
-            Generate Report
+            {isProcessing ? 'Generating...' : 'Generate Report'}
           </button>
         )}
         {activeTab === 'orders' && userRole === 'Admin' && (
@@ -742,11 +802,44 @@ export default function App() {
 
             <div className="bg-white rounded-sm shadow-sm border border-slate-200 overflow-hidden">
             
+            {/* Bulk Actions Bar */}
+            {selectedItemIds.size > 0 && userRole === 'Admin' && (
+              <div className="bg-slate-100 border-b border-slate-200 p-3 flex items-center justify-between">
+                <span className="text-sm font-bold text-slate-700">{selectedItemIds.size} items selected</span>
+                <div className="flex gap-2">
+                  <button 
+                    onClick={() => setDeleteModal({ isOpen: true, itemIds: Array.from(selectedItemIds) })} 
+                    className="px-3 py-1.5 bg-rose-600 text-white text-xs font-bold uppercase rounded-sm hover:bg-rose-700 flex items-center gap-2"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    Delete Selected
+                  </button>
+                </div>
+              </div>
+            )}
+
             {/* Desktop Table */}
           <div className="hidden md:block overflow-x-auto">
             <table className="w-full text-left border-collapse">
               <thead>
                 <tr className="bg-slate-50 border-b border-slate-200 text-xs font-bold text-slate-500 uppercase tracking-widest">
+                  {userRole === 'Admin' && (
+                    <th className="p-5 w-12">
+                      <input 
+                        type="checkbox" 
+                        className="w-4 h-4 rounded-sm border-slate-300 text-[#0055A4] focus:ring-[#0055A4]"
+                        checked={inventory.filter(item => filterCategory === 'All' || item.category === filterCategory).length > 0 && selectedItemIds.size === inventory.filter(item => filterCategory === 'All' || item.category === filterCategory).length}
+                        onChange={(e) => {
+                          const filtered = inventory.filter(item => filterCategory === 'All' || item.category === filterCategory);
+                          if (e.target.checked) {
+                            setSelectedItemIds(new Set(filtered.map(i => i.id)));
+                          } else {
+                            setSelectedItemIds(new Set());
+                          }
+                        }}
+                      />
+                    </th>
+                  )}
                   <th className="p-5">Item No</th>
                   <th className="p-5">Description</th>
                   <th className="p-5">Status</th>
@@ -755,7 +848,22 @@ export default function App() {
               </thead>
               <tbody className="divide-y divide-slate-200">
                 {inventory.filter(item => filterCategory === 'All' || item.category === filterCategory).map((item) => (
-                  <tr key={item.id} className="hover:bg-slate-50 transition-colors group">
+                  <tr key={item.id} className={`hover:bg-slate-50 transition-colors group ${selectedItemIds.has(item.id) ? 'bg-slate-50' : ''}`}>
+                    {userRole === 'Admin' && (
+                      <td className="p-5">
+                        <input 
+                          type="checkbox" 
+                          className="w-4 h-4 rounded-sm border-slate-300 text-[#0055A4] focus:ring-[#0055A4]"
+                          checked={selectedItemIds.has(item.id)}
+                          onChange={(e) => {
+                            const newSet = new Set(selectedItemIds);
+                            if (e.target.checked) newSet.add(item.id);
+                            else newSet.delete(item.id);
+                            setSelectedItemIds(newSet);
+                          }}
+                        />
+                      </td>
+                    )}
                     <td className="p-5 font-mono text-sm text-slate-500">{item.id}</td>
                     <td className="p-5 text-slate-900 font-medium">
                       <div className="flex items-center gap-2">
@@ -772,7 +880,7 @@ export default function App() {
                       <div className="flex items-center justify-end gap-2 opacity-90 group-hover:opacity-100 transition-opacity">
                         <button 
                           onClick={() => handleReportLowStock(item)}
-                          disabled={item.status === 'Low Stock' || item.status === 'Ordering'}
+                          disabled={item.status === 'Low Stock' || item.status === 'Ordering' || isProcessing}
                           className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold uppercase tracking-wider rounded-sm bg-rose-500/10 text-rose-400 hover:bg-rose-500/20 transition-colors disabled:opacity-30 disabled:cursor-not-allowed border border-rose-500/20"
                         >
                           <AlertTriangle className="w-3.5 h-3.5" />
@@ -791,7 +899,7 @@ export default function App() {
                             </button>
                             <button 
                               onClick={() => handleRestock(item)}
-                              disabled={item.status === 'Normal'}
+                              disabled={item.status === 'Normal' || isProcessing}
                               className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold uppercase tracking-wider rounded-sm bg-[#0055A4]/10 text-[#0055A4] hover:bg-[#0055A4]/20 transition-colors disabled:opacity-30 disabled:cursor-not-allowed border border-[#0055A4]/30"
                             >
                               <PackagePlus className="w-3.5 h-3.5" />
@@ -847,7 +955,7 @@ export default function App() {
                 <div className="flex flex-wrap gap-2 pt-2">
                   <button 
                     onClick={() => handleReportLowStock(item)}
-                    disabled={item.status === 'Low Stock' || item.status === 'Ordering'}
+                    disabled={item.status === 'Low Stock' || item.status === 'Ordering' || isProcessing}
                     className="flex-1 inline-flex justify-center items-center gap-1.5 px-3 py-2 text-xs font-bold uppercase tracking-wider rounded-sm bg-rose-500/10 text-rose-400 hover:bg-rose-500/20 transition-colors disabled:opacity-30 disabled:cursor-not-allowed border border-rose-500/20"
                   >
                     <AlertTriangle className="w-4 h-4" />
@@ -866,7 +974,7 @@ export default function App() {
                       </button>
                       <button 
                         onClick={() => handleRestock(item)}
-                        disabled={item.status === 'Normal'}
+                        disabled={item.status === 'Normal' || isProcessing}
                         className="flex-1 inline-flex justify-center items-center gap-1.5 px-3 py-2 text-xs font-bold uppercase tracking-wider rounded-sm bg-[#0055A4]/10 text-[#0055A4] hover:bg-[#0055A4]/20 transition-colors disabled:opacity-30 disabled:cursor-not-allowed border border-[#0055A4]/30"
                       >
                         <PackagePlus className="w-4 h-4" />
@@ -898,59 +1006,138 @@ export default function App() {
         </div>
         </div>
         ) : activeTab === 'orders' && userRole === 'Admin' ? (
-          <div className="bg-white rounded-sm shadow-sm border border-slate-200 overflow-hidden">
-            <div className="p-6 border-b border-slate-200 flex justify-between items-center">
-              <h2 className="text-lg font-black uppercase tracking-widest text-slate-900 flex items-center gap-3">
-                <ShoppingCart className="w-5 h-5 text-[#0055A4]" />
-                Order History
-              </h2>
-            </div>
-            
-            {orderHistory.length === 0 ? (
-              <div className="p-12 text-center text-slate-500 font-mono text-sm">
-                No orders have been placed yet.
-              </div>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-left border-collapse">
-                  <thead>
-                    <tr className="bg-slate-50 border-b border-slate-200 text-xs font-bold text-slate-500 uppercase tracking-widest">
-                      <th className="p-5">Order ID</th>
-                      <th className="p-5">Date & Time</th>
-                      <th className="p-5">Item</th>
-                      <th className="p-5">Status</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-200">
-                    {orderHistory.map((order) => (
-                      <tr key={order.id} className="hover:bg-slate-50 transition-colors">
-                        <td className="p-5 font-mono text-sm text-slate-500">{order.id}</td>
-                        <td className="p-5 text-sm text-slate-500">{order.date}</td>
-                        <td className="p-5 text-slate-900 font-medium">
-                          <div className="flex flex-col">
-                            <span>{order.itemName}</span>
-                            <span className="text-xs font-mono text-slate-500">{order.itemId}</span>
-                          </div>
-                        </td>
-                        <td className="p-5">
-                          {order.status === 'Pending' ? (
-                            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-sm text-xs font-bold uppercase tracking-wider bg-amber-500/10 text-amber-400 border border-amber-500/20">
-                              <AlertCircle className="w-3.5 h-3.5" />
-                              Pending
-                            </span>
-                          ) : (
-                            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-sm text-xs font-bold uppercase tracking-wider bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                              <CheckCircle className="w-3.5 h-3.5" />
-                              Completed
-                            </span>
-                          )}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+          <div className="space-y-6">
+            {/* Analysis Section */}
+            {recentOrders.length > 0 && (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="bg-white rounded-sm shadow-sm border border-slate-200 p-6">
+                  <h3 className="text-sm font-black uppercase tracking-widest text-slate-900 flex items-center gap-2 mb-6">
+                    <BarChart3 className="w-4 h-4 text-[#0055A4]" />
+                    Order Frequency (Last 1 Year)
+                  </h3>
+                  <div className="h-64">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <PieChart>
+                        <Pie
+                          data={frequencyData}
+                          cx="50%"
+                          cy="50%"
+                          innerRadius={60}
+                          outerRadius={80}
+                          paddingAngle={5}
+                          dataKey="value"
+                        >
+                          {frequencyData.map((entry, index) => (
+                            <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                          ))}
+                        </Pie>
+                        <Tooltip 
+                          formatter={(value: number) => [`${value} orders`, 'Frequency']}
+                          contentStyle={{ borderRadius: '4px', border: '1px solid #e2e8f0', fontSize: '12px', fontFamily: 'monospace' }}
+                        />
+                        <Legend wrapperStyle={{ fontSize: '12px' }} />
+                      </PieChart>
+                    </ResponsiveContainer>
+                  </div>
+                </div>
+
+                <div className="bg-white rounded-sm shadow-sm border border-slate-200 p-6">
+                  <h3 className="text-sm font-black uppercase tracking-widest text-slate-900 flex items-center gap-2 mb-6">
+                    <PieChartIcon className="w-4 h-4 text-emerald-500" />
+                    Cost Analysis (Last 1 Year)
+                  </h3>
+                  <div className="h-64">
+                    {costData.length > 0 ? (
+                      <ResponsiveContainer width="100%" height="100%">
+                        <PieChart>
+                          <Pie
+                            data={costData}
+                            cx="50%"
+                            cy="50%"
+                            innerRadius={60}
+                            outerRadius={80}
+                            paddingAngle={5}
+                            dataKey="value"
+                          >
+                            {costData.map((entry, index) => (
+                              <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                            ))}
+                          </Pie>
+                          <Tooltip 
+                            formatter={(value: number) => [`$${value.toFixed(2)}`, 'Cost']}
+                            contentStyle={{ borderRadius: '4px', border: '1px solid #e2e8f0', fontSize: '12px', fontFamily: 'monospace' }}
+                          />
+                          <Legend wrapperStyle={{ fontSize: '12px' }} />
+                        </PieChart>
+                      </ResponsiveContainer>
+                    ) : (
+                      <div className="h-full flex items-center justify-center text-slate-400 text-sm font-mono">
+                        No cost data available.
+                      </div>
+                    )}
+                  </div>
+                </div>
               </div>
             )}
+
+            <div className="bg-white rounded-sm shadow-sm border border-slate-200 overflow-hidden">
+              <div className="p-6 border-b border-slate-200 flex justify-between items-center">
+                <h2 className="text-lg font-black uppercase tracking-widest text-slate-900 flex items-center gap-3">
+                  <ShoppingCart className="w-5 h-5 text-[#0055A4]" />
+                  Order History (Last 1 Year)
+                </h2>
+              </div>
+              
+              {recentOrders.length === 0 ? (
+                <div className="p-12 text-center text-slate-500 font-mono text-sm">
+                  No orders have been placed in the last year.
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left border-collapse">
+                    <thead>
+                      <tr className="bg-slate-50 border-b border-slate-200 text-xs font-bold text-slate-500 uppercase tracking-widest">
+                        <th className="p-5">Order ID</th>
+                        <th className="p-5">Date & Time</th>
+                        <th className="p-5">Item</th>
+                        <th className="p-5">Cost</th>
+                        <th className="p-5">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-200">
+                      {recentOrders.map((order) => (
+                        <tr key={order.id} className="hover:bg-slate-50 transition-colors">
+                          <td className="p-5 font-mono text-sm text-slate-500">{order.id}</td>
+                          <td className="p-5 text-sm text-slate-500">{order.date}</td>
+                          <td className="p-5 text-slate-900 font-medium">
+                            <div className="flex flex-col">
+                              <span>{order.itemName}</span>
+                              <span className="text-xs font-mono text-slate-500">{order.itemId}</span>
+                            </div>
+                          </td>
+                          <td className="p-5 text-sm text-slate-700 font-mono">
+                            {order.cost ? `$${Number(order.cost).toFixed(2)}` : '-'}
+                          </td>
+                          <td className="p-5">
+                            {order.status === 'Pending' ? (
+                              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-sm text-xs font-bold uppercase tracking-wider bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                                <AlertCircle className="w-3.5 h-3.5" />
+                                Pending
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-sm text-xs font-bold uppercase tracking-wider bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                                <CheckCircle className="w-3.5 h-3.5" />
+                                Completed
+                              </span>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
           </div>
         ) : activeTab === 'settings' && userRole === 'Admin' ? (
           <div className="max-w-2xl mx-auto mt-8 space-y-6">
@@ -1147,10 +1334,11 @@ export default function App() {
                   </div>
                   <button 
                     type="submit"
-                    className="w-full inline-flex justify-center items-center gap-3 px-4 py-4 text-[11px] font-black uppercase tracking-widest text-white bg-[#0055A4] rounded-sm hover:bg-[#004488] transition-all active:scale-[0.99]"
+                    disabled={isProcessing}
+                    className="w-full inline-flex justify-center items-center gap-3 px-4 py-4 text-[11px] font-black uppercase tracking-widest text-white bg-[#0055A4] rounded-sm hover:bg-[#004488] transition-all active:scale-[0.99] disabled:opacity-50"
                   >
                     <Plus className="w-4 h-4" />
-                    Initialize Batch Import
+                    {isProcessing ? 'Processing...' : 'Initialize Batch Import'}
                   </button>
                 </form>
               </div>
@@ -1171,7 +1359,7 @@ export default function App() {
             </button>
             <div className="bg-slate-50 p-6 rounded-sm border border-slate-100 inline-block mb-6">
               <QRCodeCanvas 
-                value={`${window.location.origin}${window.location.pathname}?reportLowStock=${qrModal.item.id}`}
+                value={`${window.location.origin}/api/quick-report/${qrModal.item.id}`}
                 size={200}
                 level="H"
                 includeMargin={true}
@@ -1197,12 +1385,28 @@ export default function App() {
                 onClick={() => {
                   const canvas = document.querySelector('canvas');
                   if (canvas) {
-                    const url = canvas.toDataURL("image/png");
-                    const link = document.createElement('a');
-                    link.download = `QR_${qrModal.item?.id}.png`;
-                    link.href = url;
-                    link.click();
-                    toast.success("QR code image downloaded.");
+                    const compositeCanvas = document.createElement('canvas');
+                    const ctx = compositeCanvas.getContext('2d');
+                    if (ctx) {
+                      compositeCanvas.width = canvas.width;
+                      compositeCanvas.height = canvas.height + 60;
+                      ctx.fillStyle = '#ffffff';
+                      ctx.fillRect(0, 0, compositeCanvas.width, compositeCanvas.height);
+                      ctx.drawImage(canvas, 0, 0);
+                      ctx.fillStyle = '#0f172a';
+                      ctx.font = 'bold 16px monospace';
+                      ctx.textAlign = 'center';
+                      ctx.fillText(qrModal.item?.id || '', compositeCanvas.width / 2, canvas.height + 24);
+                      ctx.font = '14px sans-serif';
+                      ctx.fillText((qrModal.item?.name || '').substring(0, 30), compositeCanvas.width / 2, canvas.height + 46);
+
+                      const url = compositeCanvas.toDataURL("image/png");
+                      const link = document.createElement('a');
+                      link.download = `QR_${qrModal.item?.id}.png`;
+                      link.href = url;
+                      link.click();
+                      toast.success("QR code image downloaded.");
+                    }
                   }
                 }}
                 className="w-full px-5 py-3 text-[10px] font-black uppercase tracking-widest text-white bg-[#0055A4] hover:bg-[#004488] rounded-sm transition-colors flex items-center justify-center gap-2"
@@ -1271,7 +1475,7 @@ export default function App() {
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-white border border-slate-200 rounded-sm shadow-2xl max-w-sm w-full p-6 relative">
             <button 
-              onClick={() => setDeleteModal({ isOpen: false, itemId: null })}
+              onClick={() => setDeleteModal({ isOpen: false, itemIds: [] })}
               className="absolute top-4 right-4 text-slate-500 hover:text-slate-700 transition-colors"
             >
               <X className="w-5 h-5" />
@@ -1281,20 +1485,21 @@ export default function App() {
               Confirm Deletion
             </h3>
             <p className="text-sm text-slate-500 mb-8">
-              Are you sure you want to permanently delete this item from the system? This action cannot be undone.
+              Are you sure you want to permanently delete {deleteModal.itemIds.length > 1 ? `these ${deleteModal.itemIds.length} items` : 'this item'} from the system? This action cannot be undone.
             </p>
             <div className="flex justify-end gap-3">
               <button 
-                onClick={() => setDeleteModal({ isOpen: false, itemId: null })}
+                onClick={() => setDeleteModal({ isOpen: false, itemIds: [] })}
                 className="px-5 py-2.5 text-xs font-bold uppercase tracking-widest text-slate-500 bg-slate-100 hover:bg-slate-200 rounded-sm transition-colors"
               >
                 Cancel
               </button>
               <button 
                 onClick={confirmDelete} 
-                className="px-5 py-2.5 text-xs font-bold uppercase tracking-widest text-white bg-rose-600 hover:bg-rose-700 rounded-sm transition-colors"
+                disabled={isProcessing}
+                className="px-5 py-2.5 text-xs font-bold uppercase tracking-widest text-white bg-rose-600 hover:bg-rose-700 rounded-sm transition-colors disabled:opacity-50"
               >
-                Delete
+                {isProcessing ? 'Deleting...' : 'Delete'}
               </button>
             </div>
           </div>
@@ -1351,9 +1556,10 @@ export default function App() {
                 </button>
                 <button 
                   type="submit" 
-                  className="px-5 py-2.5 text-xs font-bold uppercase tracking-widest text-white bg-[#0055A4] hover:bg-[#004488] rounded-sm transition-colors"
+                  disabled={isProcessing}
+                  className="px-5 py-2.5 text-xs font-bold uppercase tracking-widest text-white bg-[#0055A4] hover:bg-[#004488] rounded-sm transition-colors disabled:opacity-50"
                 >
-                  Confirm Order
+                  {isProcessing ? 'Processing...' : 'Confirm Order'}
                 </button>
               </div>
             </form>

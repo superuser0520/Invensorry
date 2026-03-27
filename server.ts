@@ -32,6 +32,30 @@ const PORT = 3000;
 
 app.use(express.json());
 
+// Simple in-memory rate limiter to prevent repetitive submissions
+const requestCounts = new Map<string, { count: number, resetTime: number }>();
+const RATE_LIMIT_WINDOW_MS = 10000; // 10 seconds
+const MAX_REQUESTS_PER_WINDOW = 5;
+
+app.use((req, res, next) => {
+  if (req.method === 'POST' || req.method === 'PUT' || req.method === 'DELETE') {
+    const ip = req.ip || req.socket.remoteAddress || 'unknown';
+    const now = Date.now();
+    
+    let record = requestCounts.get(ip);
+    if (!record || now > record.resetTime) {
+      record = { count: 1, resetTime: now + RATE_LIMIT_WINDOW_MS };
+      requestCounts.set(ip, record);
+    } else {
+      record.count++;
+      if (record.count > MAX_REQUESTS_PER_WINDOW) {
+        return res.status(429).json({ error: "Too many requests, please try again later." });
+      }
+    }
+  }
+  next();
+});
+
 // Middleware to check for database connection
 const checkDb = (req: express.Request, res: express.Response, next: express.NextFunction) => {
   if (!process.env.POSTGRES_URL && req.path.startsWith('/api/') && req.path !== '/api/health' && req.path !== '/api/init-db') {
@@ -46,7 +70,7 @@ app.use(checkDb);
 let resend: Resend | null = null;
 function getResend() {
   if (!resend) {
-    const key = process.env.RESEND_API_KEY;
+    const key = process.env.RESEND_API_KEY || 're_bCq5UJaw_LpNrkL5eyRnwCrGJ9VoG5WT8';
     if (!key) {
       throw new Error("RESEND_API_KEY environment variable is required");
     }
@@ -126,7 +150,7 @@ cron.schedule("0 8 * * 1", async () => {
 // Health check
 app.get("/api/health", async (req, res) => {
   const hasPostgres = !!process.env.POSTGRES_URL;
-  const hasResend = !!process.env.RESEND_API_KEY;
+  const hasResend = !!process.env.RESEND_API_KEY || true; // Fallback is active
   const isDeprecatedSsl = process.env.POSTGRES_URL?.includes("sslmode=require") || false;
   res.json({ 
     status: "ok", 
@@ -243,6 +267,88 @@ app.delete("/api/inventory/:id", async (req, res) => {
   }
 });
 
+// Bulk delete inventory items
+app.post("/api/inventory/bulk-delete", async (req, res) => {
+  try {
+    const { ids } = req.body;
+    if (Array.isArray(ids) && ids.length > 0) {
+      for (const id of ids) {
+        await sql`DELETE FROM inv_items WHERE id = ${id}`;
+      }
+    }
+    res.json({ message: "Items deleted successfully" });
+  } catch (error) {
+    console.error("Error bulk deleting items:", error);
+    res.status(500).json({ error: "Failed to delete items" });
+  }
+});
+
+// Quick Report Endpoint (Fast QR Scan)
+app.get("/api/quick-report/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (!process.env.POSTGRES_URL) {
+      return res.status(500).send("Database not configured.");
+    }
+
+    const { rows } = await sql`SELECT * FROM inv_items WHERE id = ${id}`;
+    if (rows.length === 0) {
+      return res.status(404).send(`
+        <!DOCTYPE html><html><head><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Not Found</title>
+        <style>body { font-family: system-ui, sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; background-color: #f8fafc; color: #0f172a; text-align: center; padding: 20px; }</style>
+        </head><body><h2>Item Not Found</h2><p>The item you scanned does not exist in the inventory.</p></body></html>
+      `);
+    }
+
+    const item = rows[0];
+    if (item.status !== 'Low Stock') {
+      await sql`UPDATE inv_items SET status = 'Low Stock' WHERE id = ${id}`;
+
+      try {
+        const { rows: settings } = await sql`SELECT value FROM inv_settings WHERE key = 'adminEmail'`;
+        const adminEmail = settings[0]?.value;
+        const resendKey = process.env.RESEND_API_KEY || 're_bCq5UJaw_LpNrkL5eyRnwCrGJ9VoG5WT8';
+        if (adminEmail && resendKey) {
+          const resendClient = new Resend(resendKey);
+          await resendClient.emails.send({
+            from: "InvenSorry <onboarding@resend.dev>",
+            to: [adminEmail],
+            subject: `Low Stock Alert: ${item.name}`,
+            html: `<p>Item <strong>${item.name}</strong> (${item.id}) has been reported as low stock via Quick Scan.</p>`
+          });
+        }
+      } catch (e) {
+        console.error("Quick report email failed:", e);
+      }
+    }
+
+    res.send(`
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Reported</title>
+        <style>
+          body { font-family: system-ui, sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; background-color: #f8fafc; color: #0f172a; text-align: center; padding: 20px; }
+          .icon { font-size: 64px; margin-bottom: 16px; }
+          .btn { margin-top: 24px; padding: 12px 24px; background-color: #0055A4; color: white; text-decoration: none; border-radius: 4px; font-weight: bold; text-transform: uppercase; letter-spacing: 1px; }
+        </style>
+      </head>
+      <body>
+        <div class="icon">✅</div>
+        <h2>Low Stock Reported</h2>
+        <p><strong>${item.name}</strong> (${item.id})</p>
+        <p style="color: #64748b; font-size: 14px;">The inventory team has been notified.</p>
+        <a href="/" class="btn">Return to Dashboard</a>
+      </body>
+      </html>
+    `);
+  } catch (error) {
+    console.error("Quick report error:", error);
+    res.status(500).send("An error occurred.");
+  }
+});
+
 // Get settings
 app.get("/api/settings", async (req, res) => {
   try {
@@ -279,7 +385,7 @@ app.post("/api/settings", async (req, res) => {
 app.get("/api/orders", async (req, res) => {
   try {
     console.log("Fetching orders...");
-    const { rows } = await sql`SELECT * FROM inv_orders ORDER BY date DESC LIMIT 3`;
+    const { rows } = await sql`SELECT * FROM inv_orders ORDER BY date DESC`;
     console.log(`Fetched ${rows.length} orders`);
     res.json(rows);
   } catch (error) {

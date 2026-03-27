@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { PackagePlus, CheckCircle, AlertTriangle, List, AlertCircle, Settings, Plus, ShoppingCart, Trash2, X, Link as LinkIcon, FileText, Shield, User, Cog, Wind, Zap, Lock, QrCode, PieChart as PieChartIcon, BarChart3 } from 'lucide-react';
+import { PackagePlus, CheckCircle, AlertTriangle, List, AlertCircle, Settings, Plus, ShoppingCart, Trash2, X, Link as LinkIcon, FileText, Shield, User, Cog, Wind, Zap, Lock, QrCode, PieChart as PieChartIcon, BarChart3, HelpCircle, Printer } from 'lucide-react';
 import { Toaster, toast } from 'sonner';
 import { QRCodeCanvas } from 'qrcode.react';
 import { PieChart, Pie, Cell, Tooltip, Legend, ResponsiveContainer } from 'recharts';
@@ -135,6 +135,12 @@ export default function App() {
 
   // Order Modal State
   const [orderModal, setOrderModal] = useState<{ isOpen: boolean; item: InventoryItem | null; supplierName: string; cost: string }>({ isOpen: false, item: null, supplierName: '', cost: '' });
+
+  // Tutorial Modal State
+  const [tutorialModal, setTutorialModal] = useState<{ isOpen: boolean; view: 'Admin' | 'User' }>({ isOpen: false, view: 'User' });
+
+  // Bulk QR Modal State
+  const [bulkQrModal, setBulkQrModal] = useState<{ isOpen: boolean; items: InventoryItem[] }>({ isOpen: false, items: [] });
 
   // Handle Direct Link Reporting
   useEffect(() => {
@@ -692,7 +698,8 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 font-sans text-slate-700 selection:bg-[#0055A4]/30">
+    <>
+    <div className="min-h-screen bg-slate-50 font-sans text-slate-700 selection:bg-[#0055A4]/30 print:hidden">
       <Toaster position="top-right" theme="light" richColors />
       
       {/* Header - Shimano Style */}
@@ -705,27 +712,35 @@ export default function App() {
           <span className="text-[8px] font-bold text-[#0055A4] uppercase tracking-[0.3em] mt-1">Precision Engineering Ecosystem</span>
         </div>
         
-        {/* Role Toggle */}
-        <div className="ml-auto flex items-center gap-2 bg-slate-50 p-1.5 rounded-md border border-slate-200">
-          <button 
-            onClick={() => {
-              if (userRole !== 'Admin') {
-                setShowAdminPinModal(true);
-              }
-            }}
-            className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold uppercase tracking-wider rounded-sm transition-colors ${userRole === 'Admin' ? 'bg-[#0055A4] text-white' : 'text-slate-500 hover:text-slate-700'}`}
+        {/* Role Toggle & Tutorial */}
+        <div className="ml-auto flex items-center gap-4">
+          <button
+            onClick={() => setTutorialModal({ isOpen: true, view: userRole })}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold uppercase tracking-wider rounded-sm transition-colors text-slate-500 hover:text-[#0055A4] hover:bg-slate-100 border border-transparent hover:border-slate-200"
           >
-            <Shield className="w-3.5 h-3.5" /> Admin
+            <HelpCircle className="w-4 h-4" /> Tutorial
           </button>
-          <button 
-            onClick={() => {
-              setUserRole('User');
-              setActiveTab('inventory');
-            }}
-            className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold uppercase tracking-wider rounded-sm transition-colors ${userRole === 'User' ? 'bg-slate-700 text-white' : 'text-slate-500 hover:text-slate-700'}`}
-          >
-            <User className="w-3.5 h-3.5" /> User
-          </button>
+          <div className="flex items-center gap-2 bg-slate-50 p-1.5 rounded-md border border-slate-200">
+            <button 
+              onClick={() => {
+                if (userRole !== 'Admin') {
+                  setShowAdminPinModal(true);
+                }
+              }}
+              className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold uppercase tracking-wider rounded-sm transition-colors ${userRole === 'Admin' ? 'bg-[#0055A4] text-white' : 'text-slate-500 hover:text-slate-700'}`}
+            >
+              <Shield className="w-3.5 h-3.5" /> Admin
+            </button>
+            <button 
+              onClick={() => {
+                setUserRole('User');
+                setActiveTab('inventory');
+              }}
+              className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold uppercase tracking-wider rounded-sm transition-colors ${userRole === 'User' ? 'bg-slate-700 text-white' : 'text-slate-500 hover:text-slate-700'}`}
+            >
+              <User className="w-3.5 h-3.5" /> User
+            </button>
+          </div>
         </div>
       </header>
 
@@ -807,6 +822,16 @@ export default function App() {
               <div className="bg-slate-100 border-b border-slate-200 p-3 flex items-center justify-between">
                 <span className="text-sm font-bold text-slate-700">{selectedItemIds.size} items selected</span>
                 <div className="flex gap-2">
+                  <button 
+                    onClick={() => {
+                      const selectedItems = inventory.filter(item => selectedItemIds.has(item.id));
+                      setBulkQrModal({ isOpen: true, items: selectedItems });
+                    }}
+                    className="px-3 py-1.5 bg-slate-700 text-white text-xs font-bold uppercase rounded-sm hover:bg-slate-800 flex items-center gap-2"
+                  >
+                    <QrCode className="w-3.5 h-3.5" />
+                    Print Labels
+                  </button>
                   <button 
                     onClick={() => setDeleteModal({ isOpen: true, itemIds: Array.from(selectedItemIds) })} 
                     className="px-3 py-1.5 bg-rose-600 text-white text-xs font-bold uppercase rounded-sm hover:bg-rose-700 flex items-center gap-2"
@@ -1566,6 +1591,216 @@ export default function App() {
           </div>
         </div>
       )}
+
+      {/* Tutorial Modal */}
+      {tutorialModal.isOpen && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white border border-slate-200 rounded-sm shadow-2xl max-w-2xl w-full p-6 relative max-h-[90vh] flex flex-col">
+            <button 
+              onClick={() => setTutorialModal({ isOpen: false, view: 'User' })}
+              className="absolute top-4 right-4 text-slate-500 hover:text-slate-700 transition-colors"
+            >
+              <X className="w-5 h-5" />
+            </button>
+            
+            <div className="flex items-center gap-3 mb-6">
+              <div className="bg-[#0055A4] p-2 rounded-sm">
+                <HelpCircle className="w-5 h-5 text-white" />
+              </div>
+              <h2 className="text-xl font-black uppercase tracking-widest text-slate-900">System Tutorial</h2>
+            </div>
+
+            <div className="flex gap-2 mb-6 border-b border-slate-200 pb-4">
+              <button
+                onClick={() => setTutorialModal(prev => ({ ...prev, view: 'User' }))}
+                className={`px-4 py-2 text-xs font-bold uppercase tracking-wider rounded-sm transition-colors flex items-center gap-2 ${tutorialModal.view === 'User' ? 'bg-slate-700 text-white' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}
+              >
+                <User className="w-4 h-4" /> User Guide
+              </button>
+              <button
+                onClick={() => setTutorialModal(prev => ({ ...prev, view: 'Admin' }))}
+                className={`px-4 py-2 text-xs font-bold uppercase tracking-wider rounded-sm transition-colors flex items-center gap-2 ${tutorialModal.view === 'Admin' ? 'bg-[#0055A4] text-white' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}
+              >
+                <Shield className="w-4 h-4" /> Admin Guide
+              </button>
+            </div>
+
+            <div className="overflow-y-auto pr-2 space-y-6 flex-1 custom-scrollbar">
+              {tutorialModal.view === 'User' ? (
+                <>
+                  <div className="bg-slate-50 border border-slate-200 p-4 rounded-sm">
+                    <h3 className="text-sm font-bold uppercase tracking-widest text-slate-900 mb-2 flex items-center gap-2">
+                      <span className="bg-slate-700 text-white w-5 h-5 flex items-center justify-center rounded-full text-[10px]">1</span>
+                      Viewing Inventory
+                    </h3>
+                    <p className="text-sm text-slate-600 leading-relaxed">
+                      Browse the current stock of mechanical, pneumatic, and electrical components. Use the search bar at the top to find specific items by name or ID quickly. You can also filter by category using the dropdown menu.
+                    </p>
+                  </div>
+                  <div className="bg-slate-50 border border-slate-200 p-4 rounded-sm">
+                    <h3 className="text-sm font-bold uppercase tracking-widest text-slate-900 mb-2 flex items-center gap-2">
+                      <span className="bg-slate-700 text-white w-5 h-5 flex items-center justify-center rounded-full text-[10px]">2</span>
+                      Reporting Low Stock
+                    </h3>
+                    <p className="text-sm text-slate-600 leading-relaxed">
+                      If you notice an item is running low on the shelf, click the yellow <AlertTriangle className="w-4 h-4 inline text-amber-500 mx-1" /> <strong>Report Low</strong> button next to the item. This instantly updates the system and notifies the Admin team via email.
+                    </p>
+                  </div>
+                  <div className="bg-slate-50 border border-slate-200 p-4 rounded-sm">
+                    <h3 className="text-sm font-bold uppercase tracking-widest text-slate-900 mb-2 flex items-center gap-2">
+                      <span className="bg-slate-700 text-white w-5 h-5 flex items-center justify-center rounded-full text-[10px]">3</span>
+                      Quick Scan (QR Codes)
+                    </h3>
+                    <p className="text-sm text-slate-600 leading-relaxed">
+                      Physical bins may have QR codes attached. Scanning a QR code with your mobile device will instantly bring up the item's details and trigger a low-stock report without needing to search the system manually.
+                    </p>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="bg-slate-50 border border-slate-200 p-4 rounded-sm">
+                    <h3 className="text-sm font-bold uppercase tracking-widest text-[#0055A4] mb-2 flex items-center gap-2">
+                      <span className="bg-[#0055A4] text-white w-5 h-5 flex items-center justify-center rounded-full text-[10px]">1</span>
+                      Managing Inventory
+                    </h3>
+                    <p className="text-sm text-slate-600 leading-relaxed">
+                      As an Admin, you can add new components using the "Add Item" section. You can also edit existing details or delete obsolete items using the action buttons on the right side of the inventory table.
+                    </p>
+                  </div>
+                  <div className="bg-slate-50 border border-slate-200 p-4 rounded-sm">
+                    <h3 className="text-sm font-bold uppercase tracking-widest text-[#0055A4] mb-2 flex items-center gap-2">
+                      <span className="bg-[#0055A4] text-white w-5 h-5 flex items-center justify-center rounded-full text-[10px]">2</span>
+                      Restocking Items
+                    </h3>
+                    <p className="text-sm text-slate-600 leading-relaxed">
+                      When an item is low, click the green <CheckCircle className="w-4 h-4 inline text-emerald-500 mx-1" /> <strong>Restock</strong> button. You will be prompted to enter the supplier name and the total cost of the purchase to keep accurate financial records.
+                    </p>
+                  </div>
+                  <div className="bg-slate-50 border border-slate-200 p-4 rounded-sm">
+                    <h3 className="text-sm font-bold uppercase tracking-widest text-[#0055A4] mb-2 flex items-center gap-2">
+                      <span className="bg-[#0055A4] text-white w-5 h-5 flex items-center justify-center rounded-full text-[10px]">3</span>
+                      Batch Operations
+                    </h3>
+                    <p className="text-sm text-slate-600 leading-relaxed">
+                      Use the "Batch Import" feature to upload multiple items at once by pasting a list of names. You can also select multiple items using the checkboxes in the table to perform bulk deletions.
+                    </p>
+                  </div>
+                  <div className="bg-slate-50 border border-slate-200 p-4 rounded-sm">
+                    <h3 className="text-sm font-bold uppercase tracking-widest text-[#0055A4] mb-2 flex items-center gap-2">
+                      <span className="bg-[#0055A4] text-white w-5 h-5 flex items-center justify-center rounded-full text-[10px]">4</span>
+                      Order Analysis
+                    </h3>
+                    <p className="text-sm text-slate-600 leading-relaxed">
+                      Navigate to the <strong>Orders</strong> tab to view a comprehensive history of all restocks. Analyze the pie charts to understand order frequency and cost distribution over the last year.
+                    </p>
+                  </div>
+                  <div className="bg-slate-50 border border-slate-200 p-4 rounded-sm">
+                    <h3 className="text-sm font-bold uppercase tracking-widest text-[#0055A4] mb-2 flex items-center gap-2">
+                      <span className="bg-[#0055A4] text-white w-5 h-5 flex items-center justify-center rounded-full text-[10px]">5</span>
+                      System Settings
+                    </h3>
+                    <p className="text-sm text-slate-600 leading-relaxed">
+                      Go to the <strong>Settings</strong> tab to configure the Admin Email address. This address receives automated low-stock alerts and weekly telemetry reports every Monday at 8 AM.
+                    </p>
+                  </div>
+                </>
+              )}
+            </div>
+            
+            <div className="mt-6 pt-4 border-t border-slate-200 flex justify-end">
+              <button 
+                onClick={() => setTutorialModal({ isOpen: false, view: 'User' })}
+                className="px-6 py-2.5 text-xs font-bold uppercase tracking-widest text-white bg-slate-900 hover:bg-slate-800 rounded-sm transition-colors"
+              >
+                Close Tutorial
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Bulk QR Print Preview Modal */}
+      {bulkQrModal.isOpen && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4 print:hidden">
+          <div className="bg-white border border-slate-200 rounded-sm shadow-2xl max-w-4xl w-full p-6 relative max-h-[90vh] flex flex-col">
+            <button 
+              onClick={() => setBulkQrModal({ isOpen: false, items: [] })}
+              className="absolute top-4 right-4 text-slate-500 hover:text-slate-700 transition-colors"
+            >
+              <X className="w-5 h-5" />
+            </button>
+            
+            <div className="flex items-center gap-3 mb-6">
+              <div className="bg-[#0055A4] p-2 rounded-sm">
+                <Printer className="w-5 h-5 text-white" />
+              </div>
+              <h2 className="text-xl font-black uppercase tracking-widest text-slate-900">Print QR Labels</h2>
+            </div>
+
+            <div className="overflow-y-auto flex-1 custom-scrollbar bg-slate-50 p-6 rounded-sm border border-slate-200">
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-6">
+                {bulkQrModal.items.map(item => (
+                  <div key={item.id} className="flex flex-col items-center text-center bg-white p-4 rounded-sm shadow-sm border border-slate-100">
+                    <QRCodeCanvas 
+                      value={`${window.location.origin}/api/quick-report/${item.id}`}
+                      size={100}
+                      level="H"
+                      includeMargin={true}
+                    />
+                    <div className="mt-2 font-mono font-bold text-[10px]">{item.id}</div>
+                    <div className="text-[9px] uppercase tracking-wider max-w-[100px] truncate text-slate-500">{item.name}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+            
+            <div className="mt-6 pt-4 border-t border-slate-200 flex justify-between items-center">
+              <span className="text-xs font-bold text-slate-500 uppercase tracking-widest">{bulkQrModal.items.length} Labels Selected</span>
+              <div className="flex gap-3">
+                <button 
+                  onClick={() => setBulkQrModal({ isOpen: false, items: [] })}
+                  className="px-6 py-2.5 text-xs font-bold uppercase tracking-widest text-slate-500 bg-slate-100 hover:bg-slate-200 rounded-sm transition-colors"
+                >
+                  Cancel
+                </button>
+                <button 
+                  onClick={() => window.print()}
+                  className="px-6 py-2.5 text-xs font-bold uppercase tracking-widest text-white bg-[#0055A4] hover:bg-[#004488] rounded-sm transition-colors flex items-center gap-2"
+                >
+                  <Printer className="w-4 h-4" /> Print Labels
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
+
+    {/* Print-Only View for Bulk QR Labels */}
+    <div className="hidden print:block bg-white text-black p-8">
+      {bulkQrModal.isOpen && (
+        <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-x-4 gap-y-8">
+          {bulkQrModal.items.map(item => (
+            <div key={item.id} className="flex flex-col items-center text-center break-inside-avoid">
+              <QRCodeCanvas 
+                value={`${window.location.origin}/api/quick-report/${item.id}`}
+                size={120}
+                level="H"
+                includeMargin={true}
+                imageSettings={{
+                  src: "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e3/Shimano_logo.svg/1200px-Shimano_logo.svg.png",
+                  height: 15,
+                  width: 50,
+                  excavate: true,
+                }}
+              />
+              <div className="mt-1 font-mono font-bold text-[12px]">{item.id}</div>
+              <div className="text-[10px] uppercase tracking-wider max-w-[120px] truncate">{item.name}</div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+    </>
   );
 }

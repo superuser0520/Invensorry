@@ -450,6 +450,19 @@ app.get("/api/orders", async (req, res) => {
   }
 });
 
+// API for Power Automate to retrieve inventory and orders
+app.get("/api/power-automate/data", async (req, res) => {
+  try {
+    console.log("Fetching data for Power Automate...");
+    const { rows: inventory } = await sql`SELECT * FROM inv_items`;
+    const { rows: orders } = await sql`SELECT * FROM inv_orders ORDER BY date DESC`;
+    res.json({ inventory, orders });
+  } catch (error) {
+    console.error("Error fetching data for Power Automate:", error);
+    res.status(500).json({ error: "Failed to fetch data" });
+  }
+});
+
 // Delete order
 app.delete("/api/orders/:id", async (req, res) => {
   try {

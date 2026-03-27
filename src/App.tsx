@@ -132,6 +132,7 @@ export default function App() {
 
   // Delete Modal State
   const [deleteModal, setDeleteModal] = useState<{ isOpen: boolean; itemIds: string[] }>({ isOpen: false, itemIds: [] });
+  const [deleteOrderModal, setDeleteOrderModal] = useState<{ isOpen: boolean; orderId: string | null }>({ isOpen: false, orderId: null });
 
   // Order Modal State
   const [orderModal, setOrderModal] = useState<{ isOpen: boolean; item: InventoryItem | null; supplierName: string; cost: string }>({ isOpen: false, item: null, supplierName: '', cost: '' });
@@ -221,6 +222,30 @@ export default function App() {
     }, 60000);
     return () => clearInterval(interval);
   }, [inventory, adminEmail]);
+
+  const confirmDeleteOrder = async () => {
+    if (!deleteOrderModal.orderId || isProcessing) return;
+    setIsProcessing(true);
+    
+    try {
+      const response = await fetch(`/api/orders/${deleteOrderModal.orderId}`, {
+        method: 'DELETE',
+      });
+      
+      if (!response.ok) {
+        throw new Error('Failed to delete order');
+      }
+      
+      setOrders(orders.filter(o => o.id !== deleteOrderModal.orderId));
+      setDeleteOrderModal({ isOpen: false, orderId: null });
+      toast.success('Order record deleted successfully');
+    } catch (error) {
+      console.error('Error deleting order:', error);
+      toast.error('Failed to delete order record');
+    } finally {
+      setIsProcessing(false);
+    }
+  };
 
   const handleReportLowStock = async (item: InventoryItem) => {
     if (isProcessing) return;
@@ -1127,6 +1152,7 @@ export default function App() {
                         <th className="p-5">Item</th>
                         <th className="p-5">Cost</th>
                         <th className="p-5">Status</th>
+                        {userRole === 'Admin' && <th className="p-5 text-right">Actions</th>}
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-200">
@@ -1156,6 +1182,17 @@ export default function App() {
                               </span>
                             )}
                           </td>
+                          {userRole === 'Admin' && (
+                            <td className="p-5 text-right">
+                              <button 
+                                onClick={() => setDeleteOrderModal({ isOpen: true, orderId: order.id })}
+                                className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-sm transition-colors"
+                                title="Delete Order Record"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </td>
+                          )}
                         </tr>
                       ))}
                     </tbody>
@@ -1713,6 +1750,42 @@ export default function App() {
                 className="px-6 py-2.5 text-xs font-bold uppercase tracking-widest text-white bg-slate-900 hover:bg-slate-800 rounded-sm transition-colors"
               >
                 Close Tutorial
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Order Modal */}
+      {deleteOrderModal.isOpen && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4 print:hidden">
+          <div className="bg-white border border-slate-200 rounded-sm shadow-2xl max-w-sm w-full p-6 relative">
+            <button 
+              onClick={() => setDeleteOrderModal({ isOpen: false, orderId: null })}
+              className="absolute top-4 right-4 text-slate-500 hover:text-slate-700 transition-colors"
+            >
+              <X className="w-5 h-5" />
+            </button>
+            <h3 className="text-lg font-black uppercase tracking-widest text-slate-900 mb-2 flex items-center gap-2">
+              <AlertTriangle className="w-5 h-5 text-rose-600" />
+              Delete Order
+            </h3>
+            <p className="text-slate-600 text-sm mb-6 leading-relaxed">
+              Are you sure you want to delete this order record? This action cannot be undone and will affect order analysis.
+            </p>
+            <div className="flex justify-end gap-3">
+              <button 
+                onClick={() => setDeleteOrderModal({ isOpen: false, orderId: null })}
+                className="px-5 py-2.5 text-xs font-bold uppercase tracking-widest text-slate-500 bg-slate-100 hover:bg-slate-200 rounded-sm transition-colors"
+              >
+                Cancel
+              </button>
+              <button 
+                onClick={confirmDeleteOrder}
+                disabled={isProcessing}
+                className="px-5 py-2.5 text-xs font-bold uppercase tracking-widest text-white bg-rose-600 hover:bg-rose-700 rounded-sm transition-colors disabled:opacity-50"
+              >
+                {isProcessing ? 'Deleting...' : 'Delete'}
               </button>
             </div>
           </div>

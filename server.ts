@@ -394,6 +394,19 @@ app.get("/api/orders", async (req, res) => {
   }
 });
 
+// Delete order
+app.delete("/api/orders/:id", rateLimitMiddleware, async (req, res) => {
+  try {
+    const { id } = req.params;
+    console.log(`Deleting order: ${id}`);
+    await sql`DELETE FROM inv_orders WHERE id = ${id}`;
+    res.json({ message: "Order deleted successfully" });
+  } catch (error) {
+    console.error("Error deleting order:", error);
+    res.status(500).json({ error: "Failed to delete order" });
+  }
+});
+
 // Add order
 app.post("/api/orders", async (req, res) => {
   try {

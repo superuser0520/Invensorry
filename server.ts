@@ -1,4 +1,6 @@
 import express from "express";
+import http from "http";
+import { Server } from "socket.io";
 console.log("Server process starting at " + new Date().toISOString());
 import { sql } from "@vercel/postgres";
 import { Resend } from "resend";
@@ -28,6 +30,16 @@ if (!process.env.RESEND_API_KEY) {
 }
 
 const app = express();
+const httpServer = http.createServer(app);
+const io = new Server(httpServer);
+
+io.on("connection", (socket) => {
+  console.log("A user connected");
+  socket.on("disconnect", () => {
+    console.log("User disconnected");
+  });
+});
+
 const PORT = 3000;
 
 app.use(express.json());
@@ -248,6 +260,7 @@ app.post("/api/inventory", async (req, res) => {
         category = EXCLUDED.category,
         status = EXCLUDED.status;
     `;
+    io.emit('inventory-updated');
     res.json({ message: "Item added/updated successfully" });
   } catch (error) {
     console.error("Error adding item:", error);
@@ -260,6 +273,7 @@ app.delete("/api/inventory/:id", async (req, res) => {
   try {
     const { id } = req.params;
     await sql`DELETE FROM inv_items WHERE id = ${id}`;
+    io.emit('inventory-updated');
     res.json({ message: "Item deleted successfully" });
   } catch (error) {
     console.error("Error deleting item:", error);
@@ -276,6 +290,7 @@ app.post("/api/inventory/bulk-delete", async (req, res) => {
         await sql`DELETE FROM inv_items WHERE id = ${id}`;
       }
     }
+    io.emit('inventory-updated');
     res.json({ message: "Items deleted successfully" });
   } catch (error) {
     console.error("Error bulk deleting items:", error);
@@ -359,6 +374,7 @@ app.get("/api/quick-report/:id", async (req, res) => {
 
     if (item.status !== 'Low Stock') {
       await sql`UPDATE inv_items SET status = 'Low Stock' WHERE id = ${id}`;
+      io.emit('inventory-updated');
 
       try {
         const { rows: settings } = await sql`SELECT value FROM inv_settings WHERE key = 'adminEmail'`;
@@ -554,7 +570,7 @@ async function startServer() {
       });
     }
 
-    app.listen(PORT, "0.0.0.0", () => {
+    httpServer.listen(PORT, "0.0.0.0", () => {
       console.log(`Server running on http://localhost:${PORT}`);
     });
   } catch (error) {

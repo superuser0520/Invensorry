@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { io } from 'socket.io-client';
 import { PackagePlus, CheckCircle, AlertTriangle, List, AlertCircle, Settings, Plus, ShoppingCart, Trash2, X, Link as LinkIcon, FileText, Shield, User, Cog, Wind, Zap, Lock, QrCode, PieChart as PieChartIcon, BarChart3, HelpCircle, Printer } from 'lucide-react';
 import { Toaster, toast } from 'sonner';
 import { QRCodeCanvas } from 'qrcode.react';
@@ -50,79 +51,86 @@ export default function App() {
     return { error: text || `Server error (${response.status})` };
   };
 
-  // Fetch initial data
-  useEffect(() => {
-    const fetchData = async () => {
-      try {
-        // Initialize DB
-        const initRes = await fetch('/api/init-db', { method: 'POST' });
-        if (!initRes.ok) {
-          const errorData = await safeJson(initRes);
-          if (errorData.error === "POSTGRES_URL is missing") {
-            toast.error("Database not configured. Please set POSTGRES_URL in Secrets.");
-            setInventory(initialData);
-            setIsLoading(false);
-            return;
-          }
+  const fetchData = async () => {
+    setIsLoading(true);
+    try {
+      // Initialize DB
+      const initRes = await fetch('/api/init-db', { method: 'POST' });
+      if (!initRes.ok) {
+        const errorData = await safeJson(initRes);
+        if (errorData.error === "POSTGRES_URL is missing") {
+          toast.error("Database not configured. Please set POSTGRES_URL in Secrets.");
+          setInventory(initialData);
+          setIsLoading(false);
+          return;
         }
-        
-        const [invRes, settingsRes, ordersRes, healthRes] = await Promise.all([
-          fetch('/api/inventory'),
-          fetch('/api/settings'),
-          fetch('/api/orders'),
-          fetch('/api/health')
-        ]);
-        
-        if (healthRes.ok) {
-          const healthData = await safeJson(healthRes);
-          if (healthData.config) {
-            setDbConfig(healthData.config);
-          }
-        }
-        
-        if (invRes.ok) {
-          const data = await safeJson(invRes);
-          if (Array.isArray(data) && data.length > 0) {
-            setInventory(data);
-          } else {
-            // Seed initial data if empty
-            console.log("Database empty or invalid, seeding initial data...");
-            for (const item of initialData) {
-              await fetch('/api/inventory', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(item)
-              });
-            }
-            setInventory(initialData);
-          }
-        } else {
-          throw new Error("Failed to fetch inventory");
-        }
-        
-        if (settingsRes.ok) {
-          const settings = await safeJson(settingsRes);
-          if (settings && settings.adminEmail) {
-            setAdminEmail(settings.adminEmail);
-          }
-        }
-        
-        if (ordersRes.ok) {
-          const orders = await safeJson(ordersRes);
-          if (Array.isArray(orders)) {
-            setOrderHistory(orders);
-          }
-        }
-      } catch (error) {
-        console.error("Failed to fetch data:", error);
-        toast.error("Failed to connect to database. Using local data.");
-        setInventory(initialData); // Fallback
-      } finally {
-        setIsLoading(false);
       }
-    };
-    
+      
+      const [invRes, settingsRes, ordersRes, healthRes] = await Promise.all([
+        fetch('/api/inventory'),
+        fetch('/api/settings'),
+        fetch('/api/orders'),
+        fetch('/api/health')
+      ]);
+      
+      if (healthRes.ok) {
+        const healthData = await safeJson(healthRes);
+        if (healthData.config) {
+          setDbConfig(healthData.config);
+        }
+      }
+      
+      if (invRes.ok) {
+        const data = await safeJson(invRes);
+        if (Array.isArray(data) && data.length > 0) {
+          setInventory(data);
+        } else {
+          // Seed initial data if empty
+          console.log("Database empty or invalid, seeding initial data...");
+          for (const item of initialData) {
+            await fetch('/api/inventory', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(item)
+            });
+          }
+          setInventory(initialData);
+        }
+      } else {
+        throw new Error("Failed to fetch inventory");
+      }
+      
+      if (settingsRes.ok) {
+        const settings = await safeJson(settingsRes);
+        if (settings && settings.adminEmail) {
+          setAdminEmail(settings.adminEmail);
+        }
+      }
+      
+      if (ordersRes.ok) {
+        const orders = await safeJson(ordersRes);
+        if (Array.isArray(orders)) {
+          setOrderHistory(orders);
+        }
+      }
+    } catch (error) {
+      console.error("Failed to fetch data:", error);
+      toast.error("Failed to connect to database. Using local data.");
+      setInventory(initialData); // Fallback
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
     fetchData();
+    const socket = io();
+    socket.on('inventory-updated', () => {
+      fetchData();
+    });
+    return () => {
+      socket.disconnect();
+    };
   }, []);
 
   

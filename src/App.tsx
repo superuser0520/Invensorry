@@ -1,18 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { io } from 'socket.io-client';
-import { PackagePlus, CheckCircle, AlertTriangle, List, AlertCircle, Settings, Plus, ShoppingCart, Trash2, X, Link as LinkIcon, FileText, Shield, User, Cog, Wind, Zap, Lock, QrCode, PieChart as PieChartIcon, BarChart3, HelpCircle, Printer } from 'lucide-react';
+import { PackagePlus, CheckCircle, AlertTriangle, List, AlertCircle, Settings, Plus, ShoppingCart, Trash2, X, Link as LinkIcon, FileText, Shield, User, Cog, Wind, Zap, Lock, QrCode, PieChart as PieChartIcon, BarChart3, HelpCircle, Printer, Wrench, Disc, Database, Radio, Ruler, Search, DollarSign } from 'lucide-react';
 import { Toaster, toast } from 'sonner';
 import { QRCodeCanvas } from 'qrcode.react';
 import { PieChart, Pie, Cell, Tooltip, Legend, ResponsiveContainer } from 'recharts';
-
-type Category = 'Mechanical' | 'Pneumatic' | 'Electrical';
-
-type InventoryItem = {
-  id: string;
-  name: string;
-  status: 'Normal' | 'Low Stock' | 'Ordering';
-  category: Category;
-};
+import { Category, InventoryItem, Order } from './types';
+import { api } from './services/api';
+import { AdminPinModal } from './components/AdminPinModal';
 
 const initialData: InventoryItem[] = [
   { id: "MEC-001", name: "M5 Hex Cap Screw", status: "Normal", category: "Mechanical" },
@@ -23,21 +17,37 @@ const initialData: InventoryItem[] = [
   { id: "ELE-002", name: "24V DC Power Supply", status: "Normal", category: "Electrical" }
 ];
 
-// QR Scanner removed as per request
+const getCategoryIcon = (category: Category, className: string = "w-5 h-5") => {
+  switch (category) {
+    case 'Mechanical': return <Cog className={className} />;
+    case 'Pneumatic': return <Wind className={className} />;
+    case 'Electrical': return <Zap className={className} />;
+    default: return <PackagePlus className={className} />;
+  }
+};
 
 export default function App() {
   const [inventory, setInventory] = useState<InventoryItem[]>([]);
-  const [activeTab, setActiveTab] = useState<'inventory' | 'settings' | 'orders'>('inventory');
+  const [activeTab, setActiveTab] = useState<'inventory' | 'settings' | 'orders' | 'prices'>('inventory');
   const [bulkItemsText, setBulkItemsText] = useState('');
   const [userRole, setUserRole] = useState<'Admin' | 'User'>('User');
   const [selectedCategory, setSelectedCategory] = useState<Category>('Mechanical');
   const [filterCategory, setFilterCategory] = useState<Category | 'All'>('All');
+  const [searchQuery, setSearchQuery] = useState('');
   const [orderHistory, setOrderHistory] = useState<{ id: string; itemName: string; itemId: string; date: string; status: 'Pending' | 'Completed'; supplierName?: string; cost?: number }[]>([]);
   const [adminEmail, setAdminEmail] = useState('');
   const [isTestingEmail, setIsTestingEmail] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [dbConfig, setDbConfig] = useState<{ postgres: boolean; resend: boolean; isDeprecatedSsl: boolean }>({ postgres: false, resend: false, isDeprecatedSsl: false });
   const [qrModal, setQrModal] = useState<{ isOpen: boolean; item: InventoryItem | null }>({ isOpen: false, item: null });
+  const [priceReferenceModal, setPriceReferenceModal] = useState<{
+    isOpen: boolean;
+    item: InventoryItem | null;
+    references: { supplierName: string; price: number }[];
+    newSupplier: string;
+    newPrice: string;
+  }>({ isOpen: false, item: null, references: [], newSupplier: '', newPrice: '' });
+  const [allPriceReferences, setAllPriceReferences] = useState<{ itemId: string; supplierName: string; price: number }[]>([]);
   const [selectedItemIds, setSelectedItemIds] = useState<Set<string>>(new Set());
   const [isProcessing, setIsProcessing] = useState(false);
 
@@ -55,10 +65,10 @@ export default function App() {
     setIsLoading(true);
     try {
       // Initialize DB
-      const initRes = await fetch('/api/init-db', { method: 'POST' });
-      if (!initRes.ok) {
-        const errorData = await safeJson(initRes);
-        if (errorData.error === "POSTGRES_URL is missing") {
+      try {
+        await api.initDb();
+      } catch (error: any) {
+        if (error.message === "POSTGRES_URL is missing") {
           toast.error("Database not configured. Please set POSTGRES_URL in Secrets.");
           setInventory(initialData);
           setIsLoading(false);
@@ -66,33 +76,30 @@ export default function App() {
         }
       }
       
-      const [invRes, settingsRes, ordersRes, healthRes] = await Promise.all([
-        fetch('/api/inventory'),
-        fetch('/api/settings'),
-        fetch('/api/orders'),
-        fetch('/api/health')
+      const [invData, settingsData, ordersData, healthData, priceRefsData] = await Promise.all([
+        api.getInventory(),
+        api.getSettings(),
+        api.getOrders(),
+        api.getHealth(),
+        api.getAllPriceReferences().catch(() => [])
       ]);
       
-      if (healthRes.ok) {
-        const healthData = await safeJson(healthRes);
-        if (healthData.config) {
-          setDbConfig(healthData.config);
-        }
+      if (!healthData.error && healthData.config) {
+        setDbConfig(healthData.config);
       }
       
-      if (invRes.ok) {
-        const data = await safeJson(invRes);
-        if (Array.isArray(data) && data.length > 0) {
-          setInventory(data);
+      if (Array.isArray(priceRefsData)) {
+        setAllPriceReferences(priceRefsData);
+      }
+      
+      if (!invData.error) {
+        if (Array.isArray(invData) && invData.length > 0) {
+          setInventory(invData);
         } else {
           // Seed initial data if empty
           console.log("Database empty or invalid, seeding initial data...");
           for (const item of initialData) {
-            await fetch('/api/inventory', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify(item)
-            });
+            await api.updateInventoryItem(item);
           }
           setInventory(initialData);
         }
@@ -100,18 +107,12 @@ export default function App() {
         throw new Error("Failed to fetch inventory");
       }
       
-      if (settingsRes.ok) {
-        const settings = await safeJson(settingsRes);
-        if (settings && settings.adminEmail) {
-          setAdminEmail(settings.adminEmail);
-        }
+      if (!settingsData.error && settingsData.adminEmail) {
+        setAdminEmail(settingsData.adminEmail);
       }
       
-      if (ordersRes.ok) {
-        const orders = await safeJson(ordersRes);
-        if (Array.isArray(orders)) {
-          setOrderHistory(orders);
-        }
+      if (!ordersData.error && Array.isArray(ordersData)) {
+        setOrderHistory(ordersData);
       }
     } catch (error) {
       console.error("Failed to fetch data:", error);
@@ -136,7 +137,6 @@ export default function App() {
   
   // Admin Auth State
   const [showAdminPinModal, setShowAdminPinModal] = useState(false);
-  const [adminPinInput, setAdminPinInput] = useState('');
 
   // Delete Modal State
   const [deleteModal, setDeleteModal] = useState<{ isOpen: boolean; itemIds: string[] }>({ isOpen: false, itemIds: [] });
@@ -144,7 +144,13 @@ export default function App() {
   const [selectedOrderIds, setSelectedOrderIds] = useState<Set<string>>(new Set());
 
   // Order Modal State
-  const [orderModal, setOrderModal] = useState<{ isOpen: boolean; item: InventoryItem | null; supplierName: string; cost: string }>({ isOpen: false, item: null, supplierName: '', cost: '' });
+  const [orderModal, setOrderModal] = useState<{ 
+    isOpen: boolean; 
+    item: InventoryItem | null; 
+    supplierName: string; 
+    cost: string;
+    priceReferences: { supplierName: string; price: number }[]
+  }>({ isOpen: false, item: null, supplierName: '', cost: '', priceReferences: [] });
 
   // Tutorial Modal State
   const [tutorialModal, setTutorialModal] = useState<{ isOpen: boolean; view: 'Admin' | 'User' }>({ isOpen: false, view: 'User' });
@@ -237,19 +243,8 @@ export default function App() {
     setIsProcessing(true);
     
     try {
-      if (deleteOrderModal.orderIds.length === 1) {
-        const response = await fetch(`/api/orders/${deleteOrderModal.orderIds[0]}`, {
-          method: 'DELETE',
-        });
-        if (!response.ok) throw new Error('Failed to delete order');
-      } else {
-        const response = await fetch('/api/orders/bulk-delete', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ ids: deleteOrderModal.orderIds })
-        });
-        if (!response.ok) throw new Error('Failed to bulk delete orders');
-      }
+      const response = await api.deleteOrders(deleteOrderModal.orderIds);
+      if (response.error) throw new Error(response.error);
       
       setOrderHistory(orderHistory.filter(o => !deleteOrderModal.orderIds.includes(o.id)));
       setSelectedOrderIds(new Set());
@@ -273,11 +268,7 @@ export default function App() {
     ));
     
     try {
-      await fetch('/api/inventory', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(updatedItem)
-      });
+      await api.updateInventoryItem(updatedItem);
       
       toast.error(`Low stock reported for ${item.name}.`);
       
@@ -328,22 +319,14 @@ export default function App() {
     ));
     
     try {
-      await fetch('/api/inventory', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(updatedItem)
-      });
+      await api.updateInventoryItem(updatedItem);
       
       // Update order history if it was ordering
       if (item.status === 'Ordering') {
         const pendingOrder = orderHistory.find(o => o.itemId === item.id && o.status === 'Pending');
         if (pendingOrder) {
           const updatedOrder = { ...pendingOrder, status: 'Completed' as const };
-          await fetch('/api/orders', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(updatedOrder)
-          });
+          await api.updateOrder(updatedOrder);
           
           setOrderHistory(prev => prev.map(order => 
             order.id === pendingOrder.id ? updatedOrder : order
@@ -359,8 +342,67 @@ export default function App() {
     }
   };
 
-  const handleRequestOrderClick = (item: InventoryItem) => {
-    setOrderModal({ isOpen: true, item, supplierName: '', cost: '' });
+  const handleRequestOrderClick = async (item: InventoryItem) => {
+    try {
+      const references = await api.getPriceReferences(item.id);
+      
+      let supplierName = '';
+      let cost = '';
+      
+      if (references.length > 0) {
+        supplierName = references[0].supplierName;
+        cost = references[0].price.toString();
+      }
+      
+      setOrderModal({ isOpen: true, item, supplierName, cost, priceReferences: references });
+    } catch (error) {
+      console.error("Failed to fetch price references:", error);
+      setOrderModal({ isOpen: true, item, supplierName: '', cost: '', priceReferences: [] });
+    }
+  };
+
+  const handleOpenPriceReference = async (item: InventoryItem) => {
+    try {
+      const references = await api.getPriceReferences(item.id);
+      setPriceReferenceModal({
+        isOpen: true,
+        item,
+        references,
+        newSupplier: '',
+        newPrice: ''
+      });
+    } catch (error) {
+      console.error("Failed to fetch price references:", error);
+      toast.error("Failed to fetch price references");
+    }
+  };
+
+  const handleSaveNewPriceReference = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!priceReferenceModal.item || !priceReferenceModal.newSupplier || !priceReferenceModal.newPrice) return;
+    
+    setIsProcessing(true);
+    try {
+      const price = parseFloat(priceReferenceModal.newPrice);
+      if (isNaN(price)) throw new Error("Invalid price");
+      
+      await api.savePriceReference(priceReferenceModal.item.id, priceReferenceModal.newSupplier, price);
+      
+      // Refresh references
+      const references = await api.getPriceReferences(priceReferenceModal.item.id);
+      setPriceReferenceModal(prev => ({
+        ...prev,
+        references,
+        newSupplier: '',
+        newPrice: ''
+      }));
+      toast.success("Price reference saved");
+    } catch (error) {
+      console.error("Failed to save price reference:", error);
+      toast.error("Failed to save price reference");
+    } finally {
+      setIsProcessing(false);
+    }
   };
 
   const confirmOrder = async (e: React.FormEvent) => {
@@ -378,7 +420,6 @@ export default function App() {
     
     // Add to order history
     const newOrder = {
-      id: `ORD-${Math.random().toString(36).substr(2, 6).toUpperCase()}`,
       itemName: item.name,
       itemId: item.id,
       date: new Date().toLocaleString(),
@@ -388,20 +429,11 @@ export default function App() {
     };
     
     try {
-      await fetch('/api/inventory', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(updatedItem)
-      });
-      
-      await fetch('/api/orders', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(newOrder)
-      });
+      await api.updateInventoryItem(updatedItem);
+      const resOrder = await api.addOrder(newOrder);
       
       setOrderHistory(prev => {
-        const updated = [newOrder, ...prev];
+        const updated = [resOrder, ...prev];
         return updated; // Keep full history
       });
       toast.success(`Item ${item.name} is now ordering (pending arrival).`);
@@ -409,7 +441,7 @@ export default function App() {
       console.error("Failed to place order:", error);
       toast.error("Failed to place order");
     } finally {
-      setOrderModal({ isOpen: false, item: null, supplierName: '', cost: '' });
+      setOrderModal({ isOpen: false, item: null, supplierName: '', cost: '', priceReferences: [] });
       setIsProcessing(false);
     }
   };
@@ -423,15 +455,9 @@ export default function App() {
     setIsProcessing(true);
     
     try {
-      if (deleteModal.itemIds.length === 1) {
-        await fetch(`/api/inventory/${deleteModal.itemIds[0]}`, { method: 'DELETE' });
-      } else {
-        await fetch('/api/inventory/bulk-delete', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ ids: deleteModal.itemIds })
-        });
-      }
+      const response = await api.deleteInventoryItems(deleteModal.itemIds);
+      if (response.error) throw new Error(response.error);
+      
       setInventory(prev => prev.filter(item => !deleteModal.itemIds.includes(item.id)));
       setSelectedItemIds(new Set());
       toast.success(deleteModal.itemIds.length > 1 ? 'Items deleted successfully.' : 'Item deleted successfully.');
@@ -493,16 +519,8 @@ export default function App() {
     }));
     
     try {
-      const response = await fetch('/api/inventory/bulk-add', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ items: newItems })
-      });
-      
-      if (!response.ok) {
-        const errorData = await safeJson(response);
-        throw new Error(errorData.error || `Failed to save items`);
-      }
+      const response = await api.bulkAddInventory(newItems);
+      if (response.error) throw new Error(response.error);
       
       setInventory(prev => [...prev, ...newItems]);
       setBulkItemsText('');
@@ -751,6 +769,11 @@ export default function App() {
 
   const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884d8', '#f26a8d', '#0055A4', '#e11d48'];
 
+  const filteredInventory = inventory.filter(item => 
+    (filterCategory === 'All' || item.category === filterCategory) && 
+    (item.name.toLowerCase().includes(searchQuery.toLowerCase()) || item.id.toLowerCase().includes(searchQuery.toLowerCase()))
+  );
+
   if (isLoading) {
     return (
       <div className="min-h-screen bg-slate-50 flex items-center justify-center">
@@ -824,6 +847,12 @@ export default function App() {
                 <ShoppingCart className="w-4 h-4" /> Orders
               </button>
               <button 
+                className={`py-4 px-5 font-bold text-sm uppercase tracking-widest flex items-center gap-2 border-b-2 transition-colors ${activeTab === 'prices' ? 'border-[#0055A4] text-[#0055A4]' : 'border-transparent text-slate-500 hover:text-slate-700'}`} 
+                onClick={() => setActiveTab('prices')}
+              >
+                <DollarSign className="w-4 h-4" /> Prices
+              </button>
+              <button 
                 className={`py-4 px-5 font-bold text-sm uppercase tracking-widest flex items-center gap-2 border-b-2 transition-colors ${activeTab === 'settings' ? 'border-[#0055A4] text-[#0055A4]' : 'border-transparent text-slate-500 hover:text-slate-700'}`} 
                 onClick={() => setActiveTab('settings')}
               >
@@ -857,24 +886,38 @@ export default function App() {
       <main className="max-w-7xl mx-auto p-4 sm:p-6 lg:p-8">
         {activeTab === 'inventory' ? (
           <div className="space-y-4">
-            {/* Category Filter */}
-            <div className="flex flex-wrap gap-2">
-              <button
-                onClick={() => setFilterCategory('All')}
-                className={`px-4 py-2 text-xs font-bold uppercase tracking-wider rounded-sm transition-colors border ${filterCategory === 'All' ? 'bg-[#0055A4] text-white border-[#0055A4]' : 'bg-white text-slate-500 border-slate-200 hover:bg-slate-50'}`}
-              >
-                All Components
-              </button>
-              {(['Mechanical', 'Pneumatic', 'Electrical'] as Category[]).map(cat => (
+            {/* Search and Category Filter */}
+            <div className="flex flex-col sm:flex-row gap-4 justify-between items-start sm:items-center">
+              <div className="flex flex-wrap gap-2">
                 <button
-                  key={cat}
-                  onClick={() => setFilterCategory(cat)}
-                  className={`flex items-center gap-2 px-4 py-2 text-xs font-bold uppercase tracking-wider rounded-sm transition-colors border ${filterCategory === cat ? 'bg-[#0055A4] text-white border-[#0055A4]' : 'bg-white text-slate-500 border-slate-200 hover:bg-slate-50'}`}
+                  onClick={() => setFilterCategory('All')}
+                  className={`px-4 py-2 text-xs font-bold uppercase tracking-wider rounded-sm transition-colors border ${filterCategory === 'All' ? 'bg-[#0055A4] text-white border-[#0055A4]' : 'bg-white text-slate-500 border-slate-200 hover:bg-slate-50'}`}
                 >
-                  {getCategoryIcon(cat)}
-                  {cat}
+                  All Components
                 </button>
-              ))}
+                {(['Mechanical', 'Pneumatic', 'Electrical'] as Category[]).map(cat => (
+                  <button
+                    key={cat}
+                    onClick={() => setFilterCategory(cat)}
+                    className={`flex items-center gap-2 px-4 py-2 text-xs font-bold uppercase tracking-wider rounded-sm transition-colors border ${filterCategory === cat ? 'bg-[#0055A4] text-white border-[#0055A4]' : 'bg-white text-slate-500 border-slate-200 hover:bg-slate-50'}`}
+                  >
+                    {getCategoryIcon(cat)}
+                    {cat}
+                  </button>
+                ))}
+              </div>
+              <div className="relative w-full sm:w-64">
+                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                  <Search className="h-4 w-4 text-slate-400" />
+                </div>
+                <input
+                  type="text"
+                  placeholder="Search by name or ID..."
+                  className="block w-full pl-10 pr-3 py-2 border border-slate-300 rounded-sm leading-5 bg-white placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-[#0055A4] focus:border-[#0055A4] sm:text-sm transition-colors"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                />
+              </div>
             </div>
 
             <div className="bg-white rounded-sm shadow-sm border border-slate-200 overflow-hidden">
@@ -906,41 +949,134 @@ export default function App() {
             )}
 
             {/* Desktop Table */}
-          <div className="hidden md:block overflow-x-auto">
-            <table className="w-full text-left border-collapse">
-              <thead>
-                <tr className="bg-slate-50 border-b border-slate-200 text-xs font-bold text-slate-500 uppercase tracking-widest">
-                  {userRole === 'Admin' && (
-                    <th className="p-5 w-12">
-                      <input 
-                        type="checkbox" 
-                        className="w-4 h-4 rounded-sm border-slate-300 text-[#0055A4] focus:ring-[#0055A4]"
-                        checked={inventory.filter(item => filterCategory === 'All' || item.category === filterCategory).length > 0 && selectedItemIds.size === inventory.filter(item => filterCategory === 'All' || item.category === filterCategory).length}
-                        onChange={(e) => {
-                          const filtered = inventory.filter(item => filterCategory === 'All' || item.category === filterCategory);
-                          if (e.target.checked) {
-                            setSelectedItemIds(new Set(filtered.map(i => i.id)));
-                          } else {
-                            setSelectedItemIds(new Set());
-                          }
-                        }}
-                      />
-                    </th>
-                  )}
-                  <th className="p-5">Item No</th>
-                  <th className="p-5">Description</th>
-                  <th className="p-5">Status</th>
-                  <th className="p-5 text-right">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-200">
-                {inventory.filter(item => filterCategory === 'All' || item.category === filterCategory).map((item) => (
-                  <tr key={item.id} className={`hover:bg-slate-50 transition-colors group ${selectedItemIds.has(item.id) ? 'bg-slate-50' : ''}`}>
+            <div className="hidden md:block overflow-x-auto">
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="bg-slate-50 border-b border-slate-200 text-xs font-bold text-slate-500 uppercase tracking-widest">
                     {userRole === 'Admin' && (
-                      <td className="p-5">
+                      <th className="p-5 w-12">
                         <input 
                           type="checkbox" 
                           className="w-4 h-4 rounded-sm border-slate-300 text-[#0055A4] focus:ring-[#0055A4]"
+                          checked={filteredInventory.length > 0 && selectedItemIds.size === filteredInventory.length}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setSelectedItemIds(new Set(filteredInventory.map(i => i.id)));
+                            } else {
+                              setSelectedItemIds(new Set());
+                            }
+                          }}
+                        />
+                      </th>
+                    )}
+                    <th className="p-5">Item No</th>
+                    <th className="p-5">Description</th>
+                    <th className="p-5">Status</th>
+                    <th className="p-5 text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-200">
+                  {filteredInventory.map((item) => (
+                    <tr key={item.id} className={`hover:bg-slate-50 transition-colors group ${selectedItemIds.has(item.id) ? 'bg-slate-50' : ''}`}>
+                      {userRole === 'Admin' && (
+                        <td className="p-5">
+                          <input 
+                            type="checkbox" 
+                            className="w-4 h-4 rounded-sm border-slate-300 text-[#0055A4] focus:ring-[#0055A4]"
+                            checked={selectedItemIds.has(item.id)}
+                            onChange={(e) => {
+                              const newSet = new Set(selectedItemIds);
+                              if (e.target.checked) newSet.add(item.id);
+                              else newSet.delete(item.id);
+                              setSelectedItemIds(newSet);
+                            }}
+                          />
+                        </td>
+                      )}
+                      <td className="p-5 font-mono text-sm text-slate-500">{item.id}</td>
+                      <td className="p-5 text-slate-900 font-medium">
+                        <div className="flex items-center gap-2">
+                          <span className="text-slate-500" title={item.category}>
+                            {getCategoryIcon(item.category)}
+                          </span>
+                          {item.name}
+                        </div>
+                      </td>
+                      <td className="p-5">
+                        {renderStatus(item)}
+                      </td>
+                      <td className="p-5 text-right">
+                        <div className="flex items-center justify-end gap-2 opacity-90 group-hover:opacity-100 transition-opacity">
+                          <button 
+                            onClick={() => handleReportLowStock(item)}
+                            disabled={item.status === 'Low Stock' || item.status === 'Ordering' || isProcessing}
+                            className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-bold uppercase tracking-wider rounded-sm bg-white text-rose-700 hover:bg-rose-50 transition-colors disabled:opacity-30 disabled:cursor-not-allowed border border-slate-200"
+                          >
+                            <AlertTriangle className="w-3.5 h-3.5" />
+                            <span className="hidden lg:inline">Report Low</span>
+                          </button>
+                          
+                          {userRole === 'Admin' && (
+                            <>
+                              <button 
+                                onClick={() => handleOpenPriceReference(item)}
+                                className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-bold uppercase tracking-wider rounded-sm bg-white text-blue-700 hover:bg-blue-50 transition-colors border border-slate-200"
+                              >
+                                <DollarSign className="w-3.5 h-3.5" />
+                                <span className="hidden lg:inline">Prices</span>
+                              </button>
+                              <button 
+                                onClick={() => handleRequestOrderClick(item)}
+                                disabled={item.status === 'Ordering'}
+                                className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-bold uppercase tracking-wider rounded-sm bg-white text-amber-700 hover:bg-amber-50 transition-colors disabled:opacity-30 disabled:cursor-not-allowed border border-slate-200"
+                              >
+                                <ShoppingCart className="w-3.5 h-3.5" />
+                                <span className="hidden lg:inline">Order</span>
+                              </button>
+                              <button 
+                                onClick={() => handleRestock(item)}
+                                disabled={item.status === 'Normal' || isProcessing}
+                                className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-bold uppercase tracking-wider rounded-sm bg-white text-emerald-700 hover:bg-emerald-50 transition-colors disabled:opacity-30 disabled:cursor-not-allowed border border-slate-200"
+                              >
+                                <PackagePlus className="w-3.5 h-3.5" />
+                                <span className="hidden lg:inline">Restock</span>
+                              </button>
+                            </>
+                          )}
+                          <button 
+                            onClick={() => setQrModal({ isOpen: true, item })}
+                            className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-bold uppercase tracking-wider rounded-sm bg-white text-slate-700 hover:bg-slate-50 transition-colors border border-slate-200"
+                            title="Print QR Label"
+                          >
+                            <QrCode className="w-3.5 h-3.5" />
+                          </button>
+                          {userRole === 'Admin' && (
+                            <button 
+                              onClick={() => handleDeleteClick(item)}
+                              className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-bold uppercase tracking-wider rounded-sm bg-white text-slate-700 hover:bg-rose-50 hover:text-rose-600 transition-colors border border-slate-200"
+                              title="Delete Item"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Mobile Cards */}
+            <div className="md:hidden divide-y divide-slate-200">
+              {filteredInventory.map((item) => (
+                <div key={item.id} className={`p-5 space-y-4 ${selectedItemIds.has(item.id) ? 'bg-slate-50' : ''}`}>
+                  <div className="flex justify-between items-start">
+                    <div className="flex items-start gap-3">
+                      {userRole === 'Admin' && (
+                        <input 
+                          type="checkbox" 
+                          className="w-4 h-4 mt-1 rounded-sm border-slate-300 text-[#0055A4] focus:ring-[#0055A4]"
                           checked={selectedItemIds.has(item.id)}
                           onChange={(e) => {
                             const newSet = new Set(selectedItemIds);
@@ -949,146 +1085,81 @@ export default function App() {
                             setSelectedItemIds(newSet);
                           }}
                         />
-                      </td>
-                    )}
-                    <td className="p-5 font-mono text-sm text-slate-500">{item.id}</td>
-                    <td className="p-5 text-slate-900 font-medium">
-                      <div className="flex items-center gap-2">
-                        <span className="text-slate-500" title={item.category}>
-                          {getCategoryIcon(item.category)}
-                        </span>
-                        {item.name}
+                      )}
+                      <div>
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="text-slate-500">
+                            {getCategoryIcon(item.category, "w-3.5 h-3.5")}
+                          </span>
+                          <div className="text-xs font-mono text-slate-500">{item.id}</div>
+                        </div>
+                        <div className="text-base font-bold text-slate-900">{item.name}</div>
                       </div>
-                    </td>
-                    <td className="p-5">
-                      {renderStatus(item)}
-                    </td>
-                    <td className="p-5 text-right">
-                      <div className="flex items-center justify-end gap-2 opacity-90 group-hover:opacity-100 transition-opacity">
-                        <button 
-                          onClick={() => handleReportLowStock(item)}
-                          disabled={item.status === 'Low Stock' || item.status === 'Ordering' || isProcessing}
-                          className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold uppercase tracking-wider rounded-sm bg-rose-500/10 text-rose-400 hover:bg-rose-500/20 transition-colors disabled:opacity-30 disabled:cursor-not-allowed border border-rose-500/20"
-                        >
-                          <AlertTriangle className="w-3.5 h-3.5" />
-                          Report Low
-                        </button>
-                        
-                        {userRole === 'Admin' && (
-                          <>
-                            <button 
-                              onClick={() => handleRequestOrderClick(item)}
-                              disabled={item.status === 'Ordering'}
-                              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold uppercase tracking-wider rounded-sm bg-amber-500/10 text-amber-400 hover:bg-amber-500/20 transition-colors disabled:opacity-30 disabled:cursor-not-allowed border border-amber-500/20"
-                            >
-                              <ShoppingCart className="w-3.5 h-3.5" />
-                              Order
-                            </button>
-                            <button 
-                              onClick={() => handleRestock(item)}
-                              disabled={item.status === 'Normal' || isProcessing}
-                              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold uppercase tracking-wider rounded-sm bg-[#0055A4]/10 text-[#0055A4] hover:bg-[#0055A4]/20 transition-colors disabled:opacity-30 disabled:cursor-not-allowed border border-[#0055A4]/30"
-                            >
-                              <PackagePlus className="w-3.5 h-3.5" />
-                              Restock
-                            </button>
-                          </>
-                        )}
-
-                        <button 
-                          onClick={() => setQrModal({ isOpen: true, item })}
-                          title="Generate Report QR Code"
-                          className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold uppercase tracking-wider rounded-sm bg-slate-100 text-slate-500 hover:bg-slate-200 hover:text-[#0055A4] transition-colors border border-slate-200"
-                        >
-                          <QrCode className="w-3.5 h-3.5" />
-                        </button>
-
-                        {userRole === 'Admin' && (
-                          <button 
-                            onClick={() => handleDeleteClick(item)}
-                            title="Delete Item"
-                            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold uppercase tracking-wider rounded-sm bg-slate-100 text-slate-500 hover:bg-rose-50 hover:text-rose-600 hover:border-rose-200 transition-colors border border-slate-200"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-
-          {/* Mobile Cards */}
-          <div className="md:hidden divide-y divide-slate-200">
-            {inventory.filter(item => filterCategory === 'All' || item.category === filterCategory).map((item) => (
-              <div key={item.id} className="p-5 space-y-4">
-                <div className="flex justify-between items-start">
-                  <div>
-                    <div className="flex items-center gap-2 mb-1">
-                      <span className="text-slate-500">
-                        {getCategoryIcon(item.category, "w-3.5 h-3.5")}
-                      </span>
-                      <div className="text-xs font-mono text-slate-500">{item.id}</div>
                     </div>
-                    <div className="text-base font-bold text-slate-900">{item.name}</div>
+                    <div>
+                      {renderStatus(item)}
+                    </div>
                   </div>
-                  <div>
-                    {renderStatus(item)}
-                  </div>
-                </div>
-
-                <div className="flex flex-wrap gap-2 pt-2">
-                  <button 
-                    onClick={() => handleReportLowStock(item)}
-                    disabled={item.status === 'Low Stock' || item.status === 'Ordering' || isProcessing}
-                    className="flex-1 inline-flex justify-center items-center gap-1.5 px-3 py-2 text-xs font-bold uppercase tracking-wider rounded-sm bg-rose-500/10 text-rose-400 hover:bg-rose-500/20 transition-colors disabled:opacity-30 disabled:cursor-not-allowed border border-rose-500/20"
-                  >
-                    <AlertTriangle className="w-4 h-4" />
-                    Report Low
-                  </button>
                   
-                  {userRole === 'Admin' && (
-                    <>
-                      <button 
-                        onClick={() => handleRequestOrderClick(item)}
-                        disabled={item.status === 'Ordering'}
-                        className="flex-1 inline-flex justify-center items-center gap-1.5 px-3 py-2 text-xs font-bold uppercase tracking-wider rounded-sm bg-amber-500/10 text-amber-400 hover:bg-amber-500/20 transition-colors disabled:opacity-30 disabled:cursor-not-allowed border border-amber-500/20"
-                      >
-                        <ShoppingCart className="w-4 h-4" />
-                        Order
-                      </button>
-                      <button 
-                        onClick={() => handleRestock(item)}
-                        disabled={item.status === 'Normal' || isProcessing}
-                        className="flex-1 inline-flex justify-center items-center gap-1.5 px-3 py-2 text-xs font-bold uppercase tracking-wider rounded-sm bg-[#0055A4]/10 text-[#0055A4] hover:bg-[#0055A4]/20 transition-colors disabled:opacity-30 disabled:cursor-not-allowed border border-[#0055A4]/30"
-                      >
-                        <PackagePlus className="w-4 h-4" />
-                        Restock
-                      </button>
-                    </>
-                  )}
-                  
-                  <button 
-                    onClick={() => setQrModal({ isOpen: true, item })}
-                    className="inline-flex justify-center items-center gap-1.5 px-3 py-2 text-xs font-bold uppercase tracking-wider rounded-sm bg-slate-100 text-slate-500 hover:bg-slate-200 hover:text-[#0055A4] transition-colors border border-slate-200"
-                  >
-                    <QrCode className="w-4 h-4" />
-                  </button>
-                  
-                  {userRole === 'Admin' && (
+                  <div className="flex flex-wrap gap-2 pt-2">
                     <button 
-                      onClick={() => handleDeleteClick(item)}
-                      className="inline-flex justify-center items-center gap-1.5 px-3 py-2 text-xs font-bold uppercase tracking-wider rounded-sm bg-slate-100 text-slate-500 hover:bg-rose-50 hover:text-rose-600 hover:border-rose-200 transition-colors border border-slate-200"
+                      onClick={() => handleReportLowStock(item)}
+                      disabled={item.status === 'Low Stock' || item.status === 'Ordering' || isProcessing}
+                      className="flex-1 inline-flex justify-center items-center gap-1.5 px-3 py-2.5 text-xs font-bold uppercase tracking-wider rounded-sm bg-white text-rose-700 hover:bg-rose-50 transition-colors disabled:opacity-30 disabled:cursor-not-allowed border border-slate-200"
                     >
-                      <Trash2 className="w-4 h-4" />
+                      <AlertTriangle className="w-4 h-4" />
+                      Report
                     </button>
-                  )}
+                    
+                    {userRole === 'Admin' && (
+                      <>
+                        <button 
+                          onClick={() => handleOpenPriceReference(item)}
+                          className="flex-1 inline-flex justify-center items-center gap-1.5 px-3 py-2.5 text-xs font-bold uppercase tracking-wider rounded-sm bg-white text-blue-700 hover:bg-blue-50 transition-colors border border-slate-200"
+                        >
+                          <DollarSign className="w-4 h-4" />
+                          Prices
+                        </button>
+                        <button 
+                          onClick={() => handleRequestOrderClick(item)}
+                          disabled={item.status === 'Ordering'}
+                          className="flex-1 inline-flex justify-center items-center gap-1.5 px-3 py-2.5 text-xs font-bold uppercase tracking-wider rounded-sm bg-white text-amber-700 hover:bg-amber-50 transition-colors disabled:opacity-30 disabled:cursor-not-allowed border border-slate-200"
+                        >
+                          <ShoppingCart className="w-4 h-4" />
+                          Order
+                        </button>
+                        <button 
+                          onClick={() => handleRestock(item)}
+                          disabled={item.status === 'Normal' || isProcessing}
+                          className="flex-1 inline-flex justify-center items-center gap-1.5 px-3 py-2.5 text-xs font-bold uppercase tracking-wider rounded-sm bg-white text-emerald-700 hover:bg-emerald-50 transition-colors disabled:opacity-30 disabled:cursor-not-allowed border border-slate-200"
+                        >
+                          <PackagePlus className="w-4 h-4" />
+                          Restock
+                        </button>
+                      </>
+                    )}
+                  </div>
+                  <div className="flex gap-2">
+                    <button 
+                      onClick={() => setQrModal({ isOpen: true, item })}
+                      className="flex-1 inline-flex justify-center items-center gap-1.5 px-3 py-2.5 text-xs font-bold uppercase tracking-wider rounded-sm bg-white text-slate-700 hover:bg-slate-50 transition-colors border border-slate-200"
+                    >
+                      <QrCode className="w-4 h-4" />
+                      Label
+                    </button>
+                    {userRole === 'Admin' && (
+                      <button 
+                        onClick={() => handleDeleteClick(item)}
+                        className="flex-1 inline-flex justify-center items-center gap-1.5 px-3 py-2.5 text-xs font-bold uppercase tracking-wider rounded-sm bg-white text-slate-700 hover:bg-rose-50 hover:text-rose-600 transition-colors border border-slate-200"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                        Delete
+                      </button>
+                    )}
+                  </div>
                 </div>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
 
         </div>
         </div>
@@ -1289,6 +1360,126 @@ export default function App() {
                 </div>
                 </>
               )}
+            </div>
+          </div>
+        ) : activeTab === 'prices' && userRole === 'Admin' ? (
+          <div className="space-y-6">
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center bg-white p-6 rounded-sm shadow-sm border border-slate-200 gap-4">
+              <div>
+                <h2 className="text-xl font-black uppercase tracking-widest text-slate-900 flex items-center gap-3">
+                  <DollarSign className="w-6 h-6 text-blue-700" />
+                  Price Reference Database
+                </h2>
+                <p className="text-sm text-slate-500 mt-2">Manage supplier pricing for all inventory items ahead of ordering.</p>
+              </div>
+              <div className="relative w-full sm:w-64">
+                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                  <Search className="h-4 w-4 text-slate-400" />
+                </div>
+                <input
+                  type="text"
+                  placeholder="Search by name or ID..."
+                  className="block w-full pl-10 pr-3 py-2 border border-slate-300 rounded-sm leading-5 bg-white placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-[#0055A4] focus:border-[#0055A4] sm:text-sm transition-colors"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                />
+              </div>
+            </div>
+            
+            <div className="bg-white rounded-sm shadow-sm border border-slate-200 overflow-hidden">
+              <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse">
+                  <thead>
+                    <tr className="bg-slate-50 border-b border-slate-200 text-xs font-bold text-slate-500 uppercase tracking-widest">
+                      <th className="p-5">Item</th>
+                      <th className="p-5">Current References</th>
+                      <th className="p-5">Add New Reference</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-200">
+                    {filteredInventory.map((item) => {
+                      const itemRefs = allPriceReferences.filter(ref => ref.itemId === item.id);
+                      return (
+                        <tr key={item.id} className="hover:bg-slate-50 transition-colors">
+                          <td className="p-5 align-top">
+                            <div className="flex flex-col">
+                              <span className="font-bold text-slate-900">{item.name}</span>
+                              <span className="text-xs font-mono text-slate-500">{item.id}</span>
+                            </div>
+                          </td>
+                          <td className="p-5 align-top">
+                            {itemRefs.length > 0 ? (
+                              <div className="space-y-2">
+                                {itemRefs.map((ref, idx) => (
+                                  <div key={idx} className="flex justify-between items-center text-sm bg-white border border-slate-200 p-2 rounded-sm">
+                                    <span className="font-medium text-slate-700">{ref.supplierName}</span>
+                                    <span className="font-mono text-slate-900">${Number(ref.price).toFixed(2)}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            ) : (
+                              <span className="text-xs text-slate-400 italic">No references</span>
+                            )}
+                          </td>
+                          <td className="p-5 align-top">
+                            <form 
+                              onSubmit={async (e) => {
+                                e.preventDefault();
+                                const form = e.currentTarget;
+                                const supplierInput = form.elements.namedItem('supplier') as HTMLInputElement;
+                                const priceInput = form.elements.namedItem('price') as HTMLInputElement;
+                                const supplier = supplierInput.value;
+                                const price = parseFloat(priceInput.value);
+                                
+                                if (!supplier || isNaN(price)) return;
+                                
+                                setIsProcessing(true);
+                                try {
+                                  await api.savePriceReference(item.id, supplier, price);
+                                  const newRefs = await api.getAllPriceReferences();
+                                  setAllPriceReferences(newRefs);
+                                  supplierInput.value = '';
+                                  priceInput.value = '';
+                                  toast.success(`Price added for ${item.name}`);
+                                } catch (error) {
+                                  toast.error("Failed to save price reference");
+                                } finally {
+                                  setIsProcessing(false);
+                                }
+                              }}
+                              className="flex flex-col sm:flex-row gap-2"
+                            >
+                              <input
+                                name="supplier"
+                                type="text"
+                                placeholder="Supplier Name"
+                                required
+                                className="flex-1 px-3 py-2 bg-white border border-slate-300 rounded-sm text-sm focus:outline-none focus:ring-2 focus:ring-[#0055A4] focus:border-transparent"
+                              />
+                              <input
+                                name="price"
+                                type="number"
+                                step="0.01"
+                                min="0"
+                                placeholder="Price ($)"
+                                required
+                                className="w-24 px-3 py-2 bg-white border border-slate-300 rounded-sm text-sm focus:outline-none focus:ring-2 focus:ring-[#0055A4] focus:border-transparent"
+                              />
+                              <button
+                                type="submit"
+                                disabled={isProcessing}
+                                className="px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold uppercase tracking-wider rounded-sm transition-colors disabled:opacity-50"
+                              >
+                                Add
+                              </button>
+                            </form>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
             </div>
           </div>
         ) : activeTab === 'settings' && userRole === 'Admin' ? (
@@ -1571,56 +1762,112 @@ export default function App() {
         </div>
       )}
 
-      {/* Admin PIN Modal */}
-      {showAdminPinModal && (
+      {/* Price Reference Modal */}
+      {priceReferenceModal.isOpen && priceReferenceModal.item && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-white border border-slate-200 rounded-sm shadow-2xl max-w-sm w-full p-8 relative text-center">
+          <div className="bg-white border border-slate-200 rounded-sm shadow-2xl max-w-2xl w-full p-6 sm:p-8 relative">
             <button 
-              onClick={() => {
-                setShowAdminPinModal(false);
-                setAdminPinInput('');
-              }}
+              onClick={() => setPriceReferenceModal({ isOpen: false, item: null, references: [], newSupplier: '', newPrice: '' })}
               className="absolute top-4 right-4 text-slate-500 hover:text-slate-700 transition-colors"
             >
               <X className="w-5 h-5" />
             </button>
-            <div className="bg-slate-100 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-6">
-              <Lock className="w-8 h-8 text-[#0055A4]" />
+            <div className="flex items-center gap-3 mb-6">
+              <div className="bg-blue-100 p-2 rounded-sm">
+                <DollarSign className="w-5 h-5 text-blue-700" />
+              </div>
+              <div>
+                <h2 className="text-xl font-black uppercase tracking-widest text-slate-900">Price References</h2>
+                <p className="text-xs text-slate-500 font-bold uppercase tracking-wider">{priceReferenceModal.item.id} — {priceReferenceModal.item.name}</p>
+              </div>
             </div>
-            <h2 className="text-xl font-black uppercase tracking-widest text-slate-900 mb-2">Admin Access</h2>
-            <p className="text-sm text-slate-500 mb-8">Enter PIN to switch to Admin role.</p>
-            
-            <form onSubmit={(e) => {
-              e.preventDefault();
-              if (adminPinInput === '4334') {
-                setUserRole('Admin');
-                setActiveTab('inventory');
-                setShowAdminPinModal(false);
-                setAdminPinInput('');
-                toast.success('Admin access granted.');
-              } else {
-                toast.error('Invalid PIN.');
-                setAdminPinInput('');
-              }
-            }}>
-              <input 
-                type="password" 
-                value={adminPinInput} 
-                onChange={e => setAdminPinInput(e.target.value)}
-                className="w-full bg-slate-50 text-center text-2xl text-slate-900 border border-slate-300 p-4 rounded-sm mb-6 focus:ring-1 focus:ring-[#0055A4] focus:border-[#0055A4] outline-none font-mono tracking-[1em]"
-                placeholder="••••"
-                autoFocus
-              />
-              <button 
-                type="submit"
-                className="w-full px-5 py-3 text-xs font-bold uppercase tracking-widest text-white bg-[#0055A4] hover:bg-[#004488] rounded-sm transition-colors"
-              >
-                Unlock Admin
-              </button>
-            </form>
+
+            <div className="space-y-6">
+              {/* Existing References */}
+              <div>
+                <h3 className="text-sm font-bold uppercase tracking-widest text-slate-700 mb-3">Current References</h3>
+                {priceReferenceModal.references.length > 0 ? (
+                  <div className="bg-slate-50 border border-slate-200 rounded-sm overflow-hidden">
+                    <table className="w-full text-left text-sm">
+                      <thead className="bg-slate-100 border-b border-slate-200 text-xs font-bold text-slate-500 uppercase tracking-wider">
+                        <tr>
+                          <th className="px-4 py-3">Supplier</th>
+                          <th className="px-4 py-3 text-right">Price</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-200">
+                        {priceReferenceModal.references.map((ref, idx) => (
+                          <tr key={idx} className="hover:bg-white transition-colors">
+                            <td className="px-4 py-3 font-medium text-slate-900">{ref.supplierName}</td>
+                            <td className="px-4 py-3 text-right font-mono text-slate-700">${Number(ref.price).toFixed(2)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <div className="text-center py-8 bg-slate-50 border border-slate-200 border-dashed rounded-sm">
+                    <p className="text-sm text-slate-500">No price references found for this item.</p>
+                  </div>
+                )}
+              </div>
+
+              {/* Add New Reference */}
+              <div className="border-t border-slate-200 pt-6">
+                <h3 className="text-sm font-bold uppercase tracking-widest text-slate-700 mb-3">Add New Reference</h3>
+                <form onSubmit={handleSaveNewPriceReference} className="flex flex-col sm:flex-row gap-3">
+                  <div className="flex-1">
+                    <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1">Supplier Name</label>
+                    <input
+                      type="text"
+                      required
+                      value={priceReferenceModal.newSupplier}
+                      onChange={(e) => setPriceReferenceModal(prev => ({ ...prev, newSupplier: e.target.value }))}
+                      className="w-full px-3 py-2 bg-white border border-slate-300 rounded-sm text-sm focus:outline-none focus:ring-2 focus:ring-[#0055A4] focus:border-transparent transition-shadow"
+                      placeholder="e.g. McMaster-Carr"
+                    />
+                  </div>
+                  <div className="w-full sm:w-32">
+                    <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1">Price ($)</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      required
+                      value={priceReferenceModal.newPrice}
+                      onChange={(e) => setPriceReferenceModal(prev => ({ ...prev, newPrice: e.target.value }))}
+                      className="w-full px-3 py-2 bg-white border border-slate-300 rounded-sm text-sm focus:outline-none focus:ring-2 focus:ring-[#0055A4] focus:border-transparent transition-shadow"
+                      placeholder="0.00"
+                    />
+                  </div>
+                  <div className="flex items-end">
+                    <button
+                      type="submit"
+                      disabled={isProcessing || !priceReferenceModal.newSupplier || !priceReferenceModal.newPrice}
+                      className="w-full sm:w-auto px-4 py-2 bg-[#0055A4] hover:bg-[#004488] text-white text-xs font-bold uppercase tracking-wider rounded-sm transition-colors disabled:opacity-50 flex items-center justify-center gap-2 h-[38px]"
+                    >
+                      <Plus className="w-4 h-4" />
+                      Add
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
           </div>
         </div>
       )}
+
+      {/* Admin PIN Modal */}
+      <AdminPinModal 
+        isOpen={showAdminPinModal}
+        onClose={() => setShowAdminPinModal(false)}
+        onSuccess={() => {
+          setUserRole('Admin');
+          setActiveTab('inventory');
+          setShowAdminPinModal(false);
+          toast.success('Admin access granted.');
+        }}
+      />
 
       {/* Delete Confirmation Modal */}
       {deleteModal.isOpen && (
@@ -1676,6 +1923,25 @@ export default function App() {
               Ordering: <span className="font-bold text-slate-900">{orderModal.item.name}</span>
             </p>
             <form onSubmit={confirmOrder} className="space-y-4">
+              {orderModal.priceReferences.length > 0 && (
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-widest text-slate-500 mb-2">Price Reference</label>
+                  <select 
+                    className="w-full px-4 py-3 bg-slate-50 text-slate-900 border border-slate-200 rounded-sm focus:ring-1 focus:ring-[#0055A4] focus:border-[#0055A4] outline-none transition-all font-mono text-sm"
+                    onChange={(e) => {
+                      const ref = orderModal.priceReferences[parseInt(e.target.value)];
+                      if (ref) {
+                        setOrderModal(prev => ({ ...prev, supplierName: ref.supplierName, cost: ref.price.toString() }));
+                      }
+                    }}
+                  >
+                    <option value="">Select a reference...</option>
+                    {orderModal.priceReferences.map((ref, index) => (
+                      <option key={index} value={index}>{ref.supplierName} - ${ref.price}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
               <div>
                 <label className="block text-xs font-bold uppercase tracking-widest text-slate-500 mb-2">Supplier Name</label>
                 <input 
@@ -1701,7 +1967,7 @@ export default function App() {
               <div className="flex justify-end gap-3 pt-4">
                 <button 
                   type="button"
-                  onClick={() => setOrderModal({ isOpen: false, item: null, supplierName: '', cost: '' })}
+                  onClick={() => setOrderModal({ isOpen: false, item: null, supplierName: '', cost: '', priceReferences: [] })}
                   className="px-5 py-2.5 text-xs font-bold uppercase tracking-widest text-slate-500 bg-slate-100 hover:bg-slate-200 rounded-sm transition-colors"
                 >
                   Cancel

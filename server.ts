@@ -3,8 +3,7 @@ import http from "http";
 import { Server } from "socket.io";
 console.log("Server process starting at " + new Date().toISOString());
 import { sql } from "@vercel/postgres";
-import { Resend } from "resend";
-import cron from "node-cron";
+
 import path from "path";
 import dotenv from "dotenv";
 
@@ -79,98 +78,23 @@ const checkDb = (req: express.Request, res: express.Response, next: express.Next
 app.use(checkDb);
 
 // Initialize Resend
-let resend: Resend | null = null;
-function getResend() {
-  if (!resend) {
-    const key = process.env.RESEND_API_KEY || 're_bCq5UJaw_LpNrkL5eyRnwCrGJ9VoG5WT8';
-    if (!key) {
-      throw new Error("RESEND_API_KEY environment variable is required");
-    }
-    resend = new Resend(key);
-  }
-  return resend;
-}
+// Resend functionality removed
 
 // Scheduled Weekly Report (Monday 8 AM)
-cron.schedule("0 8 * * 1", async () => {
-  console.log("Running scheduled weekly low stock report...");
-  try {
-    if (!process.env.POSTGRES_URL || !process.env.RESEND_API_KEY) {
-      console.warn("Skipping scheduled report: Database or Email service not configured.");
-      return;
-    }
-
-    // Fetch low stock items
-    const { rows: lowStockItems } = await sql`SELECT * FROM inv_items WHERE status = 'Low Stock'`;
-    
-    // Fetch admin email
-    const { rows: settings } = await sql`SELECT value FROM inv_settings WHERE key = 'adminEmail'`;
-    const adminEmail = settings[0]?.value;
-
-    if (lowStockItems.length > 0 && adminEmail) {
-      const dateStr = new Date().toLocaleDateString();
-      const emailHtml = `
-        <div style="font-family: sans-serif; border: 1px solid #e2e8f0; padding: 20px; max-width: 600px;">
-          <div style="background-color: #0055A4; padding: 15px; text-align: center; margin-bottom: 20px;">
-            <h1 style="color: white; margin: 0; text-transform: uppercase; letter-spacing: 3px; font-size: 20px; font-style: italic;">Invensorry Control</h1>
-            <p style="color: rgba(255,255,255,0.7); margin: 5px 0 0 0; font-size: 10px; text-transform: uppercase; letter-spacing: 2px;">Precision Engineering Ecosystem</p>
-          </div>
-          <h2 style="color: #0f172a; text-transform: uppercase; letter-spacing: 1px; font-size: 16px;">Weekly Low Stock Telemetry</h2>
-          <p style="color: #64748b; font-size: 14px;">The following items are currently marked as <strong>Low Stock</strong> as of ${dateStr}:</p>
-          <table style="width: 100%; border-collapse: collapse; margin-top: 20px; border: 1px solid #e2e8f0;">
-            <thead>
-              <tr style="background-color: #f8fafc; border-bottom: 2px solid #e2e8f0;">
-                <th style="text-align: left; padding: 12px; font-size: 11px; text-transform: uppercase; color: #64748b; letter-spacing: 1px;">ID</th>
-                <th style="text-align: left; padding: 12px; font-size: 11px; text-transform: uppercase; color: #64748b; letter-spacing: 1px;">Description</th>
-                <th style="text-align: left; padding: 12px; font-size: 11px; text-transform: uppercase; color: #64748b; letter-spacing: 1px;">Category</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${lowStockItems.map(i => `
-                <tr style="border-bottom: 1px solid #f1f5f9;">
-                  <td style="padding: 12px; font-size: 13px; font-family: monospace; color: #0055A4; font-weight: bold;">${i.id}</td>
-                  <td style="padding: 12px; font-size: 13px; color: #0f172a;">${i.name}</td>
-                  <td style="padding: 12px; font-size: 13px; color: #64748b;">${i.category}</td>
-                </tr>
-              `).join('')}
-            </tbody>
-          </table>
-          <div style="margin-top: 30px; padding-top: 20px; border-top: 1px solid #e2e8f0; text-align: center;">
-            <p style="font-size: 10px; color: #94a3b8; text-transform: uppercase; letter-spacing: 1px;">Shimano Style Precision Inventory Control - Automated System</p>
-          </div>
-        </div>
-      `;
-
-      const resendClient = getResend();
-      await resendClient.emails.send({
-        from: "InvenSorry <onboarding@resend.dev>",
-        to: [adminEmail],
-        subject: `Weekly Low Stock Report - ${dateStr}`,
-        html: emailHtml,
-      });
-      console.log("Scheduled weekly report sent successfully.");
-    } else {
-      console.log("No low stock items or admin email found. Skipping report.");
-    }
-  } catch (error) {
-    console.error("Error running scheduled report:", error);
-  }
-});
+// Weekly report functionality removed
 
 // API Routes
 
 // Health check
 app.get("/api/health", async (req, res) => {
   const hasPostgres = !!process.env.POSTGRES_URL;
-  const hasResend = !!process.env.RESEND_API_KEY || true; // Fallback is active
   const isDeprecatedSsl = process.env.POSTGRES_URL?.includes("sslmode=require") || false;
   res.json({ 
     status: "ok", 
     config: { 
       postgres: hasPostgres, 
-      resend: hasResend,
-      isDeprecatedSsl
-    } 
+    },
+    isDeprecatedSsl
   });
 });
 
@@ -184,6 +108,20 @@ app.post("/api/init-db", async (req, res) => {
       return res.status(500).json({ error: "POSTGRES_URL is missing" });
     }
     
+    try {
+      await sql`
+        CREATE TABLE IF NOT EXISTS inv_price_reference (
+          "itemId" VARCHAR(255) NOT NULL,
+          "supplierName" VARCHAR(255) NOT NULL,
+          price NUMERIC NOT NULL,
+          PRIMARY KEY ("itemId", "supplierName")
+        );
+      `;
+      console.log("Price reference table checked/created");
+    } catch (e) {
+      console.error("Error creating price reference table:", e);
+    }
+
     try {
       await sql`
         CREATE TABLE IF NOT EXISTS inv_items (
@@ -376,22 +314,7 @@ app.get("/api/quick-report/:id", async (req, res) => {
       await sql`UPDATE inv_items SET status = 'Low Stock' WHERE id = ${id}`;
       io.emit('inventory-updated');
 
-      try {
-        const { rows: settings } = await sql`SELECT value FROM inv_settings WHERE key = 'adminEmail'`;
-        const adminEmail = settings[0]?.value;
-        const resendKey = process.env.RESEND_API_KEY || 're_bCq5UJaw_LpNrkL5eyRnwCrGJ9VoG5WT8';
-        if (adminEmail && resendKey) {
-          const resendClient = new Resend(resendKey);
-          await resendClient.emails.send({
-            from: "InvenSorry <onboarding@resend.dev>",
-            to: [adminEmail],
-            subject: `Low Stock Alert: ${item.name}`,
-            html: `<p>Item <strong>${item.name}</strong> (${item.id}) has been reported as low stock via Quick Scan.</p>`
-          });
-        }
-      } catch (e) {
-        console.error("Quick report email failed:", e);
-      }
+      // Email functionality removed
     }
 
     res.send(`
@@ -527,26 +450,45 @@ app.post("/api/orders", async (req, res) => {
 
 // Send email report
 app.post("/api/send-report", async (req, res) => {
-  try {
-    const { to, subject, html } = req.body;
-    
-    const resendClient = getResend();
-    
-    const data = await resendClient.emails.send({
-      from: "InvenSorry <onboarding@resend.dev>",
-      to: [to],
-      subject: subject,
-      html: html,
-    });
+  res.status(501).json({ error: "Resend functionality has been removed. Please implement your own email service." });
+});
 
-    res.json({ message: "Email sent successfully", data });
-  } catch (error: any) {
-    console.error("Error sending email:", error);
-    res.status(500).json({ error: error.message || "Failed to send email" });
+// Price Reference API
+app.get("/api/price-reference", async (req, res) => {
+  try {
+    const { rows } = await sql`SELECT * FROM inv_price_reference`;
+    res.json(rows);
+  } catch (error) {
+    console.error("Error fetching all price references:", error);
+    res.status(500).json({ error: "Failed to fetch all price references" });
   }
 });
 
-// Global error handler
+app.get("/api/price-reference/:itemId", async (req, res) => {
+  try {
+    const { itemId } = req.params;
+    const { rows } = await sql`SELECT * FROM inv_price_reference WHERE "itemId" = ${itemId}`;
+    res.json(rows);
+  } catch (error) {
+    console.error("Error fetching price references:", error);
+    res.status(500).json({ error: "Failed to fetch price references" });
+  }
+});
+
+app.post("/api/price-reference", async (req, res) => {
+  try {
+    const { itemId, supplierName, price } = req.body;
+    await sql`
+      INSERT INTO inv_price_reference ("itemId", "supplierName", price)
+      VALUES (${itemId}, ${supplierName}, ${price})
+      ON CONFLICT ("itemId", "supplierName") DO UPDATE SET price = ${price}
+    `;
+    res.json({ message: "Price reference saved successfully" });
+  } catch (error) {
+    console.error("Error saving price reference:", error);
+    res.status(500).json({ error: "Failed to save price reference" });
+  }
+});
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
   console.error("Unhandled error:", err);
   res.status(500).json({ error: err.message || "An unexpected server error occurred" });

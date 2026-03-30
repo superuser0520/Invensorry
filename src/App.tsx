@@ -7,6 +7,7 @@ import { PieChart, Pie, Cell, Tooltip, Legend, ResponsiveContainer } from 'recha
 import { Category, InventoryItem, Order } from './types';
 import { api } from './services/api';
 import { AdminPinModal } from './components/AdminPinModal';
+import { QRScannerModal } from './components/QRScannerModal';
 
 const initialData: InventoryItem[] = [
   { id: "MEC-001", name: "M5 Hex Cap Screw", status: "Normal", category: "Mechanical" },
@@ -40,16 +41,10 @@ export default function App() {
   const [isLoading, setIsLoading] = useState(true);
   const [dbConfig, setDbConfig] = useState<{ postgres: boolean; resend: boolean; isDeprecatedSsl: boolean }>({ postgres: false, resend: false, isDeprecatedSsl: false });
   const [qrModal, setQrModal] = useState<{ isOpen: boolean; item: InventoryItem | null }>({ isOpen: false, item: null });
-  const [priceReferenceModal, setPriceReferenceModal] = useState<{
-    isOpen: boolean;
-    item: InventoryItem | null;
-    references: { supplierName: string; price: number }[];
-    newSupplier: string;
-    newPrice: string;
-  }>({ isOpen: false, item: null, references: [], newSupplier: '', newPrice: '' });
   const [allPriceReferences, setAllPriceReferences] = useState<{ itemId: string; supplierName: string; price: number }[]>([]);
   const [selectedItemIds, setSelectedItemIds] = useState<Set<string>>(new Set());
   const [isProcessing, setIsProcessing] = useState(false);
+  const [isQRScannerOpen, setIsQRScannerOpen] = useState(false);
 
   // Helper to safely parse JSON from a response
   const safeJson = async (response: Response) => {
@@ -89,7 +84,23 @@ export default function App() {
       }
       
       if (Array.isArray(priceRefsData)) {
-        setAllPriceReferences(priceRefsData);
+        if (priceRefsData.length > 0) {
+          setAllPriceReferences(priceRefsData);
+        } else {
+          console.log("No price references found, seeding Misumi Singapore prices...");
+          const misumiPrices = [
+            { itemId: "MEC-001", supplierName: "Misumi Singapore", price: 0.15 },
+            { itemId: "MEC-002", supplierName: "Misumi Singapore", price: 45.00 },
+            { itemId: "PNE-001", supplierName: "Misumi Singapore", price: 35.00 },
+            { itemId: "PNE-002", supplierName: "Misumi Singapore", price: 42.00 },
+            { itemId: "ELE-001", supplierName: "Misumi Singapore", price: 28.00 },
+            { itemId: "ELE-002", supplierName: "Misumi Singapore", price: 65.00 }
+          ];
+          for (const ref of misumiPrices) {
+            await api.savePriceReference(ref.itemId, ref.supplierName, ref.price);
+          }
+          setAllPriceReferences(misumiPrices);
+        }
       }
       
       if (!invData.error) {
@@ -243,8 +254,7 @@ export default function App() {
     setIsProcessing(true);
     
     try {
-      const response = await api.deleteOrders(deleteOrderModal.orderIds);
-      if (response.error) throw new Error(response.error);
+      await api.deleteOrders(deleteOrderModal.orderIds);
       
       setOrderHistory(orderHistory.filter(o => !deleteOrderModal.orderIds.includes(o.id)));
       setSelectedOrderIds(new Set());
@@ -252,7 +262,7 @@ export default function App() {
       toast.success(deleteOrderModal.orderIds.length > 1 ? 'Order records deleted successfully' : 'Order record deleted successfully');
     } catch (error) {
       console.error('Error deleting order:', error);
-      toast.error('Failed to delete order record(s)');
+      toast.error(error instanceof Error ? error.message : 'Failed to delete order record(s)');
     } finally {
       setIsProcessing(false);
     }
@@ -361,50 +371,6 @@ export default function App() {
     }
   };
 
-  const handleOpenPriceReference = async (item: InventoryItem) => {
-    try {
-      const references = await api.getPriceReferences(item.id);
-      setPriceReferenceModal({
-        isOpen: true,
-        item,
-        references,
-        newSupplier: '',
-        newPrice: ''
-      });
-    } catch (error) {
-      console.error("Failed to fetch price references:", error);
-      toast.error("Failed to fetch price references");
-    }
-  };
-
-  const handleSaveNewPriceReference = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!priceReferenceModal.item || !priceReferenceModal.newSupplier || !priceReferenceModal.newPrice) return;
-    
-    setIsProcessing(true);
-    try {
-      const price = parseFloat(priceReferenceModal.newPrice);
-      if (isNaN(price)) throw new Error("Invalid price");
-      
-      await api.savePriceReference(priceReferenceModal.item.id, priceReferenceModal.newSupplier, price);
-      
-      // Refresh references
-      const references = await api.getPriceReferences(priceReferenceModal.item.id);
-      setPriceReferenceModal(prev => ({
-        ...prev,
-        references,
-        newSupplier: '',
-        newPrice: ''
-      }));
-      toast.success("Price reference saved");
-    } catch (error) {
-      console.error("Failed to save price reference:", error);
-      toast.error("Failed to save price reference");
-    } finally {
-      setIsProcessing(false);
-    }
-  };
-
   const confirmOrder = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!orderModal.item || isProcessing) return;
@@ -439,7 +405,7 @@ export default function App() {
       toast.success(`Item ${item.name} is now ordering (pending arrival).`);
     } catch (error) {
       console.error("Failed to place order:", error);
-      toast.error("Failed to place order");
+      toast.error(error instanceof Error ? error.message : "Failed to place order");
     } finally {
       setOrderModal({ isOpen: false, item: null, supplierName: '', cost: '', priceReferences: [] });
       setIsProcessing(false);
@@ -455,15 +421,14 @@ export default function App() {
     setIsProcessing(true);
     
     try {
-      const response = await api.deleteInventoryItems(deleteModal.itemIds);
-      if (response.error) throw new Error(response.error);
+      await api.deleteInventoryItems(deleteModal.itemIds);
       
       setInventory(prev => prev.filter(item => !deleteModal.itemIds.includes(item.id)));
       setSelectedItemIds(new Set());
       toast.success(deleteModal.itemIds.length > 1 ? 'Items deleted successfully.' : 'Item deleted successfully.');
     } catch (error) {
       console.error("Failed to delete item(s):", error);
-      toast.error("Failed to delete item(s)");
+      toast.error(error instanceof Error ? error.message : "Failed to delete item(s)");
     } finally {
       setDeleteModal({ isOpen: false, itemIds: [] });
       setIsProcessing(false);
@@ -519,8 +484,7 @@ export default function App() {
     }));
     
     try {
-      const response = await api.bulkAddInventory(newItems);
-      if (response.error) throw new Error(response.error);
+      await api.bulkAddInventory(newItems);
       
       setInventory(prev => [...prev, ...newItems]);
       setBulkItemsText('');
@@ -531,6 +495,33 @@ export default function App() {
       toast.error(error instanceof Error ? error.message : "Failed to add items");
     } finally {
       setIsProcessing(false);
+    }
+  };
+
+  const handleQRScanSuccess = (decodedText: string) => {
+    try {
+      const url = new URL(decodedText);
+      const pathParts = url.pathname.split('/');
+      const itemId = pathParts[pathParts.length - 1];
+      
+      if (itemId) {
+        const item = inventory.find(i => i.id === itemId);
+        if (item) {
+          setSearchQuery(itemId);
+          toast.success(`Found item: ${item.name}`);
+        } else {
+          toast.error(`Item ${itemId} not found in inventory.`);
+        }
+      }
+    } catch (e) {
+      // If it's not a URL, maybe it's just the ID
+      const item = inventory.find(i => i.id === decodedText);
+      if (item) {
+        setSearchQuery(decodedText);
+        toast.success(`Found item: ${item.name}`);
+      } else {
+        toast.error(`Invalid QR code or item not found.`);
+      }
     }
   };
 
@@ -693,7 +684,7 @@ export default function App() {
       }
     } catch (error) {
       console.error("Failed to save email:", error);
-      toast.error("Failed to save admin email to database.");
+      toast.error(error instanceof Error ? error.message : "Failed to save admin email to database.");
     }
   };
 
@@ -736,7 +727,7 @@ export default function App() {
       }
     } catch (error) {
       console.error("Test email failed:", error);
-      toast.error("Test email failed. Check your API configuration.");
+      toast.error(error instanceof Error ? error.message : "Test email failed. Check your API configuration.");
     } finally {
       setIsTestingEmail(false);
     }
@@ -906,17 +897,26 @@ export default function App() {
                   </button>
                 ))}
               </div>
-              <div className="relative w-full sm:w-64">
-                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                  <Search className="h-4 w-4 text-slate-400" />
+              <div className="flex items-center gap-2 w-full sm:w-auto">
+                <div className="relative w-full sm:w-64">
+                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                    <Search className="h-4 w-4 text-slate-400" />
+                  </div>
+                  <input
+                    type="text"
+                    placeholder="Search by name or ID..."
+                    className="block w-full pl-10 pr-3 py-2 border border-slate-300 rounded-sm leading-5 bg-white placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-[#0055A4] focus:border-[#0055A4] sm:text-sm transition-colors"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                  />
                 </div>
-                <input
-                  type="text"
-                  placeholder="Search by name or ID..."
-                  className="block w-full pl-10 pr-3 py-2 border border-slate-300 rounded-sm leading-5 bg-white placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-[#0055A4] focus:border-[#0055A4] sm:text-sm transition-colors"
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                />
+                <button
+                  onClick={() => setIsQRScannerOpen(true)}
+                  className="p-2 bg-white border border-slate-300 rounded-sm text-slate-500 hover:text-[#0055A4] hover:border-[#0055A4] transition-colors"
+                  title="Scan QR Code"
+                >
+                  <QrCode className="w-5 h-5" />
+                </button>
               </div>
             </div>
 
@@ -1019,13 +1019,6 @@ export default function App() {
                           {userRole === 'Admin' && (
                             <>
                               <button 
-                                onClick={() => handleOpenPriceReference(item)}
-                                className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-bold uppercase tracking-wider rounded-sm bg-white text-blue-700 hover:bg-blue-50 transition-colors border border-slate-200"
-                              >
-                                <DollarSign className="w-3.5 h-3.5" />
-                                <span className="hidden lg:inline">Prices</span>
-                              </button>
-                              <button 
                                 onClick={() => handleRequestOrderClick(item)}
                                 disabled={item.status === 'Ordering'}
                                 className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-bold uppercase tracking-wider rounded-sm bg-white text-amber-700 hover:bg-amber-50 transition-colors disabled:opacity-30 disabled:cursor-not-allowed border border-slate-200"
@@ -1113,13 +1106,6 @@ export default function App() {
                     
                     {userRole === 'Admin' && (
                       <>
-                        <button 
-                          onClick={() => handleOpenPriceReference(item)}
-                          className="flex-1 inline-flex justify-center items-center gap-1.5 px-3 py-2.5 text-xs font-bold uppercase tracking-wider rounded-sm bg-white text-blue-700 hover:bg-blue-50 transition-colors border border-slate-200"
-                        >
-                          <DollarSign className="w-4 h-4" />
-                          Prices
-                        </button>
                         <button 
                           onClick={() => handleRequestOrderClick(item)}
                           disabled={item.status === 'Ordering'}
@@ -1372,17 +1358,26 @@ export default function App() {
                 </h2>
                 <p className="text-sm text-slate-500 mt-2">Manage supplier pricing for all inventory items ahead of ordering.</p>
               </div>
-              <div className="relative w-full sm:w-64">
-                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                  <Search className="h-4 w-4 text-slate-400" />
+              <div className="flex items-center gap-2 w-full sm:w-auto">
+                <div className="relative w-full sm:w-64">
+                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                    <Search className="h-4 w-4 text-slate-400" />
+                  </div>
+                  <input
+                    type="text"
+                    placeholder="Search by name or ID..."
+                    className="block w-full pl-10 pr-3 py-2 border border-slate-300 rounded-sm leading-5 bg-white placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-[#0055A4] focus:border-[#0055A4] sm:text-sm transition-colors"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                  />
                 </div>
-                <input
-                  type="text"
-                  placeholder="Search by name or ID..."
-                  className="block w-full pl-10 pr-3 py-2 border border-slate-300 rounded-sm leading-5 bg-white placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-[#0055A4] focus:border-[#0055A4] sm:text-sm transition-colors"
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                />
+                <button
+                  onClick={() => setIsQRScannerOpen(true)}
+                  className="p-2 bg-white border border-slate-300 rounded-sm text-slate-500 hover:text-[#0055A4] hover:border-[#0055A4] transition-colors"
+                  title="Scan QR Code"
+                >
+                  <QrCode className="w-5 h-5" />
+                </button>
               </div>
             </div>
             
@@ -1442,7 +1437,7 @@ export default function App() {
                                   priceInput.value = '';
                                   toast.success(`Price added for ${item.name}`);
                                 } catch (error) {
-                                  toast.error("Failed to save price reference");
+                                  toast.error(error instanceof Error ? error.message : "Failed to save price reference");
                                 } finally {
                                   setIsProcessing(false);
                                 }
@@ -1762,101 +1757,6 @@ export default function App() {
         </div>
       )}
 
-      {/* Price Reference Modal */}
-      {priceReferenceModal.isOpen && priceReferenceModal.item && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-white border border-slate-200 rounded-sm shadow-2xl max-w-2xl w-full p-6 sm:p-8 relative">
-            <button 
-              onClick={() => setPriceReferenceModal({ isOpen: false, item: null, references: [], newSupplier: '', newPrice: '' })}
-              className="absolute top-4 right-4 text-slate-500 hover:text-slate-700 transition-colors"
-            >
-              <X className="w-5 h-5" />
-            </button>
-            <div className="flex items-center gap-3 mb-6">
-              <div className="bg-blue-100 p-2 rounded-sm">
-                <DollarSign className="w-5 h-5 text-blue-700" />
-              </div>
-              <div>
-                <h2 className="text-xl font-black uppercase tracking-widest text-slate-900">Price References</h2>
-                <p className="text-xs text-slate-500 font-bold uppercase tracking-wider">{priceReferenceModal.item.id} — {priceReferenceModal.item.name}</p>
-              </div>
-            </div>
-
-            <div className="space-y-6">
-              {/* Existing References */}
-              <div>
-                <h3 className="text-sm font-bold uppercase tracking-widest text-slate-700 mb-3">Current References</h3>
-                {priceReferenceModal.references.length > 0 ? (
-                  <div className="bg-slate-50 border border-slate-200 rounded-sm overflow-hidden">
-                    <table className="w-full text-left text-sm">
-                      <thead className="bg-slate-100 border-b border-slate-200 text-xs font-bold text-slate-500 uppercase tracking-wider">
-                        <tr>
-                          <th className="px-4 py-3">Supplier</th>
-                          <th className="px-4 py-3 text-right">Price</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-200">
-                        {priceReferenceModal.references.map((ref, idx) => (
-                          <tr key={idx} className="hover:bg-white transition-colors">
-                            <td className="px-4 py-3 font-medium text-slate-900">{ref.supplierName}</td>
-                            <td className="px-4 py-3 text-right font-mono text-slate-700">${Number(ref.price).toFixed(2)}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                ) : (
-                  <div className="text-center py-8 bg-slate-50 border border-slate-200 border-dashed rounded-sm">
-                    <p className="text-sm text-slate-500">No price references found for this item.</p>
-                  </div>
-                )}
-              </div>
-
-              {/* Add New Reference */}
-              <div className="border-t border-slate-200 pt-6">
-                <h3 className="text-sm font-bold uppercase tracking-widest text-slate-700 mb-3">Add New Reference</h3>
-                <form onSubmit={handleSaveNewPriceReference} className="flex flex-col sm:flex-row gap-3">
-                  <div className="flex-1">
-                    <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1">Supplier Name</label>
-                    <input
-                      type="text"
-                      required
-                      value={priceReferenceModal.newSupplier}
-                      onChange={(e) => setPriceReferenceModal(prev => ({ ...prev, newSupplier: e.target.value }))}
-                      className="w-full px-3 py-2 bg-white border border-slate-300 rounded-sm text-sm focus:outline-none focus:ring-2 focus:ring-[#0055A4] focus:border-transparent transition-shadow"
-                      placeholder="e.g. McMaster-Carr"
-                    />
-                  </div>
-                  <div className="w-full sm:w-32">
-                    <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1">Price ($)</label>
-                    <input
-                      type="number"
-                      step="0.01"
-                      min="0"
-                      required
-                      value={priceReferenceModal.newPrice}
-                      onChange={(e) => setPriceReferenceModal(prev => ({ ...prev, newPrice: e.target.value }))}
-                      className="w-full px-3 py-2 bg-white border border-slate-300 rounded-sm text-sm focus:outline-none focus:ring-2 focus:ring-[#0055A4] focus:border-transparent transition-shadow"
-                      placeholder="0.00"
-                    />
-                  </div>
-                  <div className="flex items-end">
-                    <button
-                      type="submit"
-                      disabled={isProcessing || !priceReferenceModal.newSupplier || !priceReferenceModal.newPrice}
-                      className="w-full sm:w-auto px-4 py-2 bg-[#0055A4] hover:bg-[#004488] text-white text-xs font-bold uppercase tracking-wider rounded-sm transition-colors disabled:opacity-50 flex items-center justify-center gap-2 h-[38px]"
-                    >
-                      <Plus className="w-4 h-4" />
-                      Add
-                    </button>
-                  </div>
-                </form>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* Admin PIN Modal */}
       <AdminPinModal 
         isOpen={showAdminPinModal}
@@ -1867,6 +1767,13 @@ export default function App() {
           setShowAdminPinModal(false);
           toast.success('Admin access granted.');
         }}
+      />
+
+      {/* QR Scanner Modal */}
+      <QRScannerModal
+        isOpen={isQRScannerOpen}
+        onClose={() => setIsQRScannerOpen(false)}
+        onScanSuccess={handleQRScanSuccess}
       />
 
       {/* Delete Confirmation Modal */}

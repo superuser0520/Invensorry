@@ -1,13 +1,23 @@
 import { InventoryItem, Order, PriceReference } from '../types';
 
-// Helper to safely parse JSON from a response
+// Helper to safely parse JSON from a response and throw on error
 const safeJson = async (response: Response) => {
   const contentType = response.headers.get('content-type');
+  let data: any = null;
+  
   if (contentType && contentType.includes('application/json')) {
-    return await response.json();
+    data = await response.json();
+  } else {
+    const text = await response.text();
+    data = { error: text || `Server error (${response.status})` };
   }
-  const text = await response.text();
-  return { error: text || `Server error (${response.status})` };
+
+  if (!response.ok) {
+    const errorMessage = data?.error || data?.message || data?.details || `API Error: ${response.status} ${response.statusText}`;
+    throw new Error(errorMessage);
+  }
+
+  return data;
 };
 
 export const api = {

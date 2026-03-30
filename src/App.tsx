@@ -1387,8 +1387,8 @@ export default function App() {
                   <thead>
                     <tr className="bg-slate-50 border-b border-slate-200 text-xs font-bold text-slate-500 uppercase tracking-widest">
                       <th className="p-5">Item</th>
-                      <th className="p-5">Current References</th>
-                      <th className="p-5">Add New Reference</th>
+                      <th className="p-5">Current Reference</th>
+                      <th className="p-5">Update Reference</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-200">
@@ -1435,7 +1435,7 @@ export default function App() {
                                   setAllPriceReferences(newRefs);
                                   supplierInput.value = '';
                                   priceInput.value = '';
-                                  toast.success(`Price added for ${item.name}`);
+                                  toast.success(`Price updated for ${item.name}`);
                                 } catch (error) {
                                   toast.error(error instanceof Error ? error.message : "Failed to save price reference");
                                 } finally {
@@ -1448,6 +1448,7 @@ export default function App() {
                                 name="supplier"
                                 type="text"
                                 placeholder="Supplier Name"
+                                defaultValue={itemRefs.length > 0 ? itemRefs[0].supplierName : ''}
                                 required
                                 className="flex-1 px-3 py-2 bg-white border border-slate-300 rounded-sm text-sm focus:outline-none focus:ring-2 focus:ring-[#0055A4] focus:border-transparent"
                               />
@@ -1457,6 +1458,7 @@ export default function App() {
                                 step="0.01"
                                 min="0"
                                 placeholder="Price ($)"
+                                defaultValue={itemRefs.length > 0 ? itemRefs[0].price : ''}
                                 required
                                 className="w-24 px-3 py-2 bg-white border border-slate-300 rounded-sm text-sm focus:outline-none focus:ring-2 focus:ring-[#0055A4] focus:border-transparent"
                               />
@@ -1465,7 +1467,7 @@ export default function App() {
                                 disabled={isProcessing}
                                 className="px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold uppercase tracking-wider rounded-sm transition-colors disabled:opacity-50"
                               >
-                                Add
+                                Save
                               </button>
                             </form>
                           </td>

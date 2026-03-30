@@ -478,10 +478,13 @@ app.get("/api/price-reference/:itemId", async (req, res) => {
 app.post("/api/price-reference", async (req, res) => {
   try {
     const { itemId, supplierName, price } = req.body;
+    
+    // Delete existing references for this item to ensure only one is kept
+    await sql`DELETE FROM inv_price_reference WHERE "itemId" = ${itemId}`;
+    
     await sql`
       INSERT INTO inv_price_reference ("itemId", "supplierName", price)
       VALUES (${itemId}, ${supplierName}, ${price})
-      ON CONFLICT ("itemId", "supplierName") DO UPDATE SET price = ${price}
     `;
     res.json({ message: "Price reference saved successfully" });
   } catch (error) {

@@ -22,3 +22,9 @@ export type PriceReference = {
   supplierName: string;
   price: number;
 };
+
+export type Supplier = {
+  id: string;
+  name: string;
+  email: string;
+};

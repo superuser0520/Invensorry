@@ -8,6 +8,7 @@ import { Category, InventoryItem, Order } from './types';
 import { api } from './services/api';
 import { AdminPinModal } from './components/AdminPinModal';
 import { QRScannerModal } from './components/QRScannerModal';
+import { RFQModal } from './components/RFQModal';
 
 const initialData: InventoryItem[] = [
   { id: "MEC-001", name: "M5 Hex Cap Screw", status: "Normal", category: "Mechanical" },
@@ -45,6 +46,8 @@ export default function App() {
   const [selectedItemIds, setSelectedItemIds] = useState<Set<string>>(new Set());
   const [isProcessing, setIsProcessing] = useState(false);
   const [isQRScannerOpen, setIsQRScannerOpen] = useState(false);
+  const [rfqModal, setRfqModal] = useState<{ isOpen: boolean; selectedIds: string[] }>({ isOpen: false, selectedIds: [] });
+  const [suppliers, setSuppliers] = useState<any[]>([]);
 
   // Helper to safely parse JSON from a response
   const safeJson = async (response: Response) => {
@@ -71,13 +74,18 @@ export default function App() {
         }
       }
       
-      const [invData, settingsData, ordersData, healthData, priceRefsData] = await Promise.all([
+      const [invData, settingsData, ordersData, healthData, priceRefsData, suppliersData] = await Promise.all([
         api.getInventory(),
         api.getSettings(),
         api.getOrders(),
         api.getHealth(),
-        api.getAllPriceReferences().catch(() => [])
+        api.getAllPriceReferences().catch(() => []),
+        api.getSuppliers().catch(() => [])
       ]);
+      
+      if (Array.isArray(suppliersData)) {
+        setSuppliers(suppliersData);
+      }
       
       if (!healthData.error && healthData.config) {
         setDbConfig(healthData.config);
@@ -1074,7 +1082,6 @@ export default function App() {
                   <div className="p-4 space-y-4">
                     <div className="flex justify-between items-start">
                       <div className="flex items-start gap-3">
-                        {userRole === 'Admin' && (
                           <input 
                             type="checkbox" 
                             className="w-4 h-4 mt-1 rounded-sm border-slate-300 text-[#0055A4] focus:ring-[#0055A4]"
@@ -1086,7 +1093,6 @@ export default function App() {
                               setSelectedItemIds(newSet);
                             }}
                           />
-                        )}
                         <div>
                           <div className="text-[9px] font-mono font-black text-[#0055A4] uppercase tracking-widest mb-0.5">{item.id}</div>
                           <div className="text-sm font-black uppercase tracking-tight text-slate-900 leading-tight">{item.name}</div>
@@ -1171,6 +1177,14 @@ export default function App() {
                 </div>
               ))}
             </div>
+            {selectedItemIds.size > 0 && (
+              <button 
+                onClick={() => setRfqModal({ isOpen: true, selectedIds: Array.from(selectedItemIds) })}
+                className="fixed bottom-4 right-4 z-50 px-6 py-3 bg-[#0055A4] text-white font-black uppercase tracking-widest rounded-sm shadow-lg hover:bg-[#004488] transition-colors"
+              >
+                Request Quote ({selectedItemIds.size})
+              </button>
+            )}
 
         </div>
         </div>
@@ -2473,6 +2487,13 @@ export default function App() {
         </div>
       )}
     </div>
+    <RFQModal 
+      isOpen={rfqModal.isOpen} 
+      onClose={() => setRfqModal({ isOpen: false, selectedIds: [] })}
+      selectedIds={rfqModal.selectedIds}
+      suppliers={suppliers}
+      inventory={inventory}
+    />
     </>
   );
 }

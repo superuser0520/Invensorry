@@ -165,6 +165,19 @@ app.post("/api/init-db", async (req, res) => {
       console.error("Error creating orders table:", e);
     }
 
+    try {
+      await sql`
+        CREATE TABLE IF NOT EXISTS inv_suppliers (
+          id VARCHAR(255) PRIMARY KEY,
+          name VARCHAR(255) NOT NULL,
+          email VARCHAR(255) NOT NULL
+        );
+      `;
+      console.log("Suppliers table checked/created");
+    } catch (e) {
+      console.error("Error creating suppliers table:", e);
+    }
+
     res.json({ message: "Database initialization attempt completed" });
   } catch (error) {
     console.error("Database initialization error (outer):", error);
@@ -386,6 +399,45 @@ app.get("/api/price-reference", async (req, res) => {
   } catch (error) {
     console.error("Error fetching all price references:", error);
     res.status(500).json({ error: "Failed to fetch all price references" });
+  }
+});
+
+// Supplier API
+app.get("/api/suppliers", async (req, res) => {
+  try {
+    const { rows } = await sql`SELECT * FROM inv_suppliers`;
+    res.json(rows);
+  } catch (error) {
+    console.error("Error fetching suppliers:", error);
+    res.status(500).json({ error: "Failed to fetch suppliers" });
+  }
+});
+
+app.post("/api/suppliers", async (req, res) => {
+  try {
+    const { id, name, email } = req.body;
+    await sql`
+      INSERT INTO inv_suppliers (id, name, email)
+      VALUES (${id}, ${name}, ${email})
+      ON CONFLICT (id) DO UPDATE SET
+        name = EXCLUDED.name,
+        email = EXCLUDED.email;
+    `;
+    res.json({ message: "Supplier saved successfully" });
+  } catch (error) {
+    console.error("Error saving supplier:", error);
+    res.status(500).json({ error: "Failed to save supplier" });
+  }
+});
+
+app.delete("/api/suppliers/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    await sql`DELETE FROM inv_suppliers WHERE id = ${id}`;
+    res.json({ message: "Supplier deleted successfully" });
+  } catch (error) {
+    console.error("Error deleting supplier:", error);
+    res.status(500).json({ error: "Failed to delete supplier" });
   }
 });
 

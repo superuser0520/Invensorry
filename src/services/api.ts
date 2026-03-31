@@ -123,5 +123,26 @@ export const api = {
       body: JSON.stringify({ itemId, supplierName, price }),
     });
     return safeJson(res);
+  },
+
+  async getSuppliers() {
+    const res = await fetch('/api/suppliers');
+    return safeJson(res);
+  },
+
+  async saveSupplier(supplier: { id: string; name: string; email: string }) {
+    const res = await fetch('/api/suppliers', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(supplier),
+    });
+    return safeJson(res);
+  },
+
+  async deleteSupplier(id: string) {
+    const res = await fetch(`/api/suppliers/${id}`, {
+      method: 'DELETE',
+    });
+    return safeJson(res);
   }
 };

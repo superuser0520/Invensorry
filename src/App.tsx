@@ -9,6 +9,7 @@ import { api } from './services/api';
 import { AdminPinModal } from './components/AdminPinModal';
 import { QRScannerModal } from './components/QRScannerModal';
 import { RFQModal } from './components/RFQModal';
+import { SupplierManagement } from './components/SupplierManagement';
 
 const initialData: InventoryItem[] = [
   { id: "MEC-001", name: "M5 Hex Cap Screw", status: "Normal", category: "Mechanical" },
@@ -1834,6 +1835,8 @@ export default function App() {
                 </div>
               </div>
             </div>
+
+            <SupplierManagement suppliers={suppliers} onUpdate={fetchData} />
 
             {/* Bulk Add Section */}
             <div className="bg-white rounded-sm shadow-sm border border-slate-200 overflow-hidden">

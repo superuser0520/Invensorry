@@ -59,7 +59,7 @@ export const api = {
     return safeJson(res);
   },
 
-  async addOrder(order: Omit<Order, 'id'>) {
+  async addOrder(order: Order | Omit<Order, 'id'>) {
     const res = await fetch('/api/orders', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

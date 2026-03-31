@@ -169,26 +169,27 @@ export default function App() {
   // Bulk QR Modal State
   const [bulkQrModal, setBulkQrModal] = useState<{ isOpen: boolean; items: InventoryItem[] }>({ isOpen: false, items: [] });
 
+  // Scanned Report Modal State
+  const [scannedReportItem, setScannedReportItem] = useState<InventoryItem | null>(null);
+  const [showScannedReportModal, setShowScannedReportModal] = useState(false);
+  const [scannedReportStatus, setScannedReportStatus] = useState<'confirm' | 'success' | 'cancelled'>('confirm');
+
   // Handle Direct Link Reporting
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    const reportId = params.get('report');
-    if (reportId) {
-      setInventory(prev => {
-        const exists = prev.find(i => i.id === reportId);
-        if (exists && exists.status === 'Normal') {
-          toast.error(`Low stock reported for ${exists.name} via direct link.`);
-          return prev.map(i => i.id === reportId ? { ...i, status: 'Low Stock' } : i);
-        } else if (exists) {
-          toast.info(`${exists.name} is already marked as ${exists.status}.`);
-        } else {
-          toast.error(`Item ${reportId} not found.`);
-        }
-        return prev;
-      });
+    const reportId = params.get('report') || params.get('scan');
+    if (reportId && inventory.length > 0) {
+      const exists = inventory.find(i => i.id === reportId);
+      if (exists) {
+        setScannedReportItem(exists);
+        setScannedReportStatus('confirm');
+        setShowScannedReportModal(true);
+      } else {
+        toast.error(`Item ${reportId} not found.`);
+      }
       window.history.replaceState({}, document.title, window.location.pathname);
     }
-  }, []);
+  }, [inventory]);
 
   // Weekly Monday 8 AM Report Logic
   const lastReportDate = useRef<string | null>(null);
@@ -280,7 +281,7 @@ export default function App() {
     try {
       await api.updateInventoryItem(updatedItem);
       
-      toast.error(`Low stock reported for ${item.name}.`);
+      toast.warning(`Low stock reported for ${item.name}.`);
       
       // Send email if configured
       if (adminEmail && dbConfig.resend) {
@@ -386,6 +387,7 @@ export default function App() {
     
     // Add to order history
     const newOrder = {
+      id: Math.random().toString(36).substring(2, 9).toUpperCase(),
       itemName: item.name,
       itemId: item.id,
       date: new Date().toLocaleString(),
@@ -396,10 +398,10 @@ export default function App() {
     
     try {
       await api.updateInventoryItem(updatedItem);
-      const resOrder = await api.addOrder(newOrder);
+      await api.addOrder(newOrder);
       
       setOrderHistory(prev => {
-        const updated = [resOrder, ...prev];
+        const updated = [newOrder, ...prev];
         return updated; // Keep full history
       });
       toast.success(`Item ${item.name} is now ordering (pending arrival).`);
@@ -499,29 +501,28 @@ export default function App() {
   };
 
   const handleQRScanSuccess = (decodedText: string) => {
+    let itemId = '';
     try {
       const url = new URL(decodedText);
       const pathParts = url.pathname.split('/');
-      const itemId = pathParts[pathParts.length - 1];
-      
-      if (itemId) {
-        const item = inventory.find(i => i.id === itemId);
-        if (item) {
-          setSearchQuery(itemId);
-          toast.success(`Found item: ${item.name}`);
-        } else {
-          toast.error(`Item ${itemId} not found in inventory.`);
-        }
-      }
+      itemId = pathParts[pathParts.length - 1];
     } catch (e) {
       // If it's not a URL, maybe it's just the ID
-      const item = inventory.find(i => i.id === decodedText);
+      itemId = decodedText;
+    }
+
+    if (itemId) {
+      const item = inventory.find(i => i.id === itemId);
       if (item) {
-        setSearchQuery(decodedText);
-        toast.success(`Found item: ${item.name}`);
+        setSearchQuery(itemId);
+        setScannedReportItem(item);
+        setScannedReportStatus('confirm');
+        setShowScannedReportModal(true);
       } else {
-        toast.error(`Invalid QR code or item not found.`);
+        toast.error(`Item ${itemId} not found in inventory.`);
       }
+    } else {
+      toast.error(`Invalid QR code.`);
     }
   };
 
@@ -1777,6 +1778,155 @@ export default function App() {
         onClose={() => setIsQRScannerOpen(false)}
         onScanSuccess={handleQRScanSuccess}
       />
+
+      {/* Scanned Report Modal */}
+      {showScannedReportModal && scannedReportItem && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white border border-slate-200 rounded-sm shadow-2xl max-w-sm w-full p-6 relative text-center">
+            {scannedReportItem.status === 'Ordering' ? (
+              <>
+                <div className="w-16 h-16 rounded-full bg-blue-50 border border-blue-200 text-[#0055A4] flex items-center justify-center mx-auto mb-4">
+                  <PackagePlus className="w-8 h-8" />
+                </div>
+                <h2 className="text-xl font-black uppercase tracking-widest text-slate-900 mb-2">Item is on Order</h2>
+                <p className="text-slate-600 mb-6">
+                  <strong>{scannedReportItem.name}</strong> is already being ordered and will arrive soon.
+                </p>
+                <div className="flex flex-col gap-3">
+                  <button
+                    onClick={() => {
+                      setShowScannedReportModal(false);
+                      setIsQRScannerOpen(true);
+                    }}
+                    className="w-full px-4 py-3 text-sm font-bold uppercase tracking-wider text-white bg-[#0055A4] hover:bg-[#004488] rounded-sm transition-colors flex items-center justify-center gap-2"
+                  >
+                    <QrCode className="w-4 h-4" />
+                    Scan Another Item
+                  </button>
+                  <button
+                    onClick={() => setShowScannedReportModal(false)}
+                    className="w-full px-4 py-2 text-sm font-bold uppercase tracking-wider text-slate-500 hover:text-slate-700 hover:bg-slate-50 rounded-sm transition-colors"
+                  >
+                    Close
+                  </button>
+                </div>
+              </>
+            ) : scannedReportItem.status === 'Low Stock' && scannedReportStatus === 'confirm' ? (
+              <>
+                <div className="w-16 h-16 rounded-full bg-amber-50 border border-amber-200 text-amber-500 flex items-center justify-center mx-auto mb-4">
+                  <AlertTriangle className="w-8 h-8" />
+                </div>
+                <h2 className="text-xl font-black uppercase tracking-widest text-slate-900 mb-2">Already Reported</h2>
+                <p className="text-slate-600 mb-6">
+                  <strong>{scannedReportItem.name}</strong> has already been reported as low stock.
+                </p>
+                <div className="flex flex-col gap-3">
+                  <button
+                    onClick={() => {
+                      setShowScannedReportModal(false);
+                      setIsQRScannerOpen(true);
+                    }}
+                    className="w-full px-4 py-3 text-sm font-bold uppercase tracking-wider text-white bg-[#0055A4] hover:bg-[#004488] rounded-sm transition-colors flex items-center justify-center gap-2"
+                  >
+                    <QrCode className="w-4 h-4" />
+                    Scan Another Item
+                  </button>
+                  <button
+                    onClick={() => setShowScannedReportModal(false)}
+                    className="w-full px-4 py-2 text-sm font-bold uppercase tracking-wider text-slate-500 hover:text-slate-700 hover:bg-slate-50 rounded-sm transition-colors"
+                  >
+                    Close
+                  </button>
+                </div>
+              </>
+            ) : scannedReportStatus === 'confirm' ? (
+              <>
+                <div className="w-16 h-16 rounded-full bg-amber-50 border border-amber-200 text-amber-500 flex items-center justify-center mx-auto mb-4">
+                  <AlertTriangle className="w-8 h-8" />
+                </div>
+                <h2 className="text-xl font-black uppercase tracking-widest text-slate-900 mb-2">Report Low Stock?</h2>
+                <p className="text-slate-600 mb-6">
+                  Are you sure you want to report <strong>{scannedReportItem.name}</strong> ({scannedReportItem.id}) as low stock?
+                </p>
+                <div className="flex gap-3">
+                  <button
+                    onClick={() => setScannedReportStatus('cancelled')}
+                    className="flex-1 px-4 py-2 text-sm font-bold uppercase tracking-wider text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-sm transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={async () => {
+                      await handleReportLowStock(scannedReportItem);
+                      setScannedReportStatus('success');
+                    }}
+                    disabled={isProcessing}
+                    className="flex-1 px-4 py-2 text-sm font-bold uppercase tracking-wider text-white bg-amber-500 hover:bg-amber-600 rounded-sm transition-colors disabled:opacity-50"
+                  >
+                    {isProcessing ? 'Reporting...' : 'Confirm'}
+                  </button>
+                </div>
+              </>
+            ) : scannedReportStatus === 'success' ? (
+              <>
+                <div className="w-16 h-16 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-500 flex items-center justify-center mx-auto mb-4">
+                  <CheckCircle className="w-8 h-8" />
+                </div>
+                <h2 className="text-xl font-black uppercase tracking-widest text-slate-900 mb-2">Reported!</h2>
+                <p className="text-slate-600 mb-6">
+                  <strong>{scannedReportItem.name}</strong> has been marked as low stock.
+                </p>
+                <div className="flex flex-col gap-3">
+                  <button
+                    onClick={() => {
+                      setShowScannedReportModal(false);
+                      setIsQRScannerOpen(true);
+                    }}
+                    className="w-full px-4 py-3 text-sm font-bold uppercase tracking-wider text-white bg-[#0055A4] hover:bg-[#004488] rounded-sm transition-colors flex items-center justify-center gap-2"
+                  >
+                    <QrCode className="w-4 h-4" />
+                    Scan Another Item
+                  </button>
+                  <button
+                    onClick={() => setShowScannedReportModal(false)}
+                    className="w-full px-4 py-2 text-sm font-bold uppercase tracking-wider text-slate-500 hover:text-slate-700 hover:bg-slate-50 rounded-sm transition-colors"
+                  >
+                    Close
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="w-16 h-16 rounded-full bg-slate-50 border border-slate-200 text-slate-500 flex items-center justify-center mx-auto mb-4">
+                  <X className="w-8 h-8" />
+                </div>
+                <h2 className="text-xl font-black uppercase tracking-widest text-slate-900 mb-2">Cancelled</h2>
+                <p className="text-slate-600 mb-6">
+                  Low stock reporting was cancelled.
+                </p>
+                <div className="flex flex-col gap-3">
+                  <button
+                    onClick={() => {
+                      setShowScannedReportModal(false);
+                      setIsQRScannerOpen(true);
+                    }}
+                    className="w-full px-4 py-3 text-sm font-bold uppercase tracking-wider text-white bg-[#0055A4] hover:bg-[#004488] rounded-sm transition-colors flex items-center justify-center gap-2"
+                  >
+                    <QrCode className="w-4 h-4" />
+                    Scan Another Item
+                  </button>
+                  <button
+                    onClick={() => setShowScannedReportModal(false)}
+                    className="w-full px-4 py-2 text-sm font-bold uppercase tracking-wider text-slate-500 hover:text-slate-700 hover:bg-slate-50 rounded-sm transition-colors"
+                  >
+                    Close
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Delete Confirmation Modal */}
       {deleteModal.isOpen && (

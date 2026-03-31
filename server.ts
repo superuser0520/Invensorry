@@ -363,7 +363,7 @@ app.post("/api/orders", async (req, res) => {
     console.log(`Adding order: ${id} for ${itemName}`);
     await sql`
       INSERT INTO inv_orders (id, "itemName", "itemId", date, status, "supplierName", cost)
-      VALUES (${id}, ${itemName}, ${itemId}, ${date}, ${status}, ${supplierName}, ${cost})
+      VALUES (${id}, ${itemName}, ${itemId}, ${date}, ${status}, ${supplierName || null}, ${cost ?? null})
       ON CONFLICT (id) DO UPDATE SET status = EXCLUDED.status;
     `;
     res.json({ message: "Order added/updated successfully" });

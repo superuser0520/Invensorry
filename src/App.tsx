@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { io } from 'socket.io-client';
-import { PackagePlus, CheckCircle, AlertTriangle, List, AlertCircle, Settings, Plus, ShoppingCart, Trash2, X, Link as LinkIcon, FileText, Shield, User, Cog, Wind, Zap, Lock, QrCode, PieChart as PieChartIcon, BarChart3, HelpCircle, Printer, Wrench, Disc, Database, Radio, Ruler, Search, DollarSign } from 'lucide-react';
+import { PackagePlus, CheckCircle, CheckCircle2, AlertTriangle, List, AlertCircle, Settings, Plus, ShoppingCart, Trash2, X, Link as LinkIcon, FileText, Shield, User, Cog, Wind, Zap, Lock, QrCode, PieChart as PieChartIcon, BarChart3, HelpCircle, Printer, Wrench, Disc, Database, Radio, Ruler, Search, DollarSign } from 'lucide-react';
 import { Toaster, toast } from 'sonner';
 import { QRCodeCanvas } from 'qrcode.react';
 import { PieChart, Pie, Cell, Tooltip, Legend, ResponsiveContainer } from 'recharts';
@@ -281,7 +281,13 @@ export default function App() {
     try {
       await api.updateInventoryItem(updatedItem);
       
-      toast.warning(`Low stock reported for ${item.name}.`);
+      toast.warning(`Low stock reported for ${item.name}.`, {
+        style: {
+          background: '#FFFBEB',
+          borderColor: '#FDE68A',
+          color: '#92400E'
+        }
+      });
       
       // Send email if configured
       if (adminEmail && dbConfig.resend) {
@@ -386,14 +392,14 @@ export default function App() {
     ));
     
     // Add to order history
-    const newOrder = {
+    const newOrder: Order = {
       id: Math.random().toString(36).substring(2, 9).toUpperCase(),
       itemName: item.name,
       itemId: item.id,
       date: new Date().toLocaleString(),
       status: 'Pending' as const,
-      supplierName: orderModal.supplierName,
-      cost: isNaN(costNum) ? 0 : costNum
+      ...(orderModal.supplierName ? { supplierName: orderModal.supplierName } : {}),
+      ...(!isNaN(costNum) ? { cost: costNum } : {})
     };
     
     try {
@@ -780,42 +786,42 @@ export default function App() {
       <Toaster position="top-right" theme="light" richColors />
       
       {/* Header - Shimano Style */}
-      <header className="bg-white border-b-2 border-[#0055A4] py-4 px-6 shadow-sm flex items-center gap-4">
-        <div className="bg-[#0055A4] p-2 rounded-sm">
-          <PackagePlus className="w-6 h-6 text-white" />
+      <header className="bg-white border-b-2 border-[#0055A4] py-3 px-4 sm:px-6 shadow-sm flex items-center gap-3">
+        <div className="bg-[#0055A4] p-1.5 rounded-sm shrink-0">
+          <PackagePlus className="w-5 h-5 text-white" />
         </div>
-        <div className="flex flex-col">
-          <h1 className="text-2xl font-black tracking-widest text-slate-900 uppercase italic leading-none">Invensorry Control</h1>
-          <span className="text-[8px] font-bold text-[#0055A4] uppercase tracking-[0.3em] mt-1">Production Engineering Ecosystem</span>
+        <div className="flex flex-col min-w-0">
+          <h1 className="text-xl sm:text-2xl font-black tracking-widest text-slate-900 uppercase italic leading-none truncate">Inventory Control</h1>
+          <span className="text-[7px] sm:text-[8px] font-bold text-[#0055A4] uppercase tracking-[0.2em] mt-1 truncate">Production Engineering Ecosystem</span>
         </div>
         
         {/* Role Toggle & Tutorial */}
-        <div className="ml-auto flex items-center gap-4">
+        <div className="ml-auto flex items-center gap-2 sm:gap-4">
           <button
             onClick={() => setTutorialModal({ isOpen: true, view: userRole })}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold uppercase tracking-wider rounded-sm transition-colors text-slate-500 hover:text-[#0055A4] hover:bg-slate-100 border border-transparent hover:border-slate-200"
+            className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold uppercase tracking-wider rounded-sm transition-colors text-slate-500 hover:text-[#0055A4] hover:bg-slate-100 border border-transparent hover:border-slate-200"
           >
             <HelpCircle className="w-4 h-4" /> Tutorial
           </button>
-          <div className="flex items-center gap-2 bg-slate-50 p-1.5 rounded-md border border-slate-200">
+          <div className="flex items-center gap-1 bg-slate-50 p-1 rounded-md border border-slate-200">
             <button 
               onClick={() => {
                 if (userRole !== 'Admin') {
                   setShowAdminPinModal(true);
                 }
               }}
-              className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold uppercase tracking-wider rounded-sm transition-colors ${userRole === 'Admin' ? 'bg-[#0055A4] text-white' : 'text-slate-500 hover:text-slate-700'}`}
+              className={`flex items-center gap-1 px-2 py-1.5 text-[10px] font-black uppercase tracking-wider rounded-sm transition-colors ${userRole === 'Admin' ? 'bg-[#0055A4] text-white' : 'text-slate-500 hover:text-slate-700'}`}
             >
-              <Shield className="w-3.5 h-3.5" /> Admin
+              <Shield className="w-3 h-3" /> Admin
             </button>
             <button 
               onClick={() => {
                 setUserRole('User');
                 setActiveTab('inventory');
               }}
-              className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold uppercase tracking-wider rounded-sm transition-colors ${userRole === 'User' ? 'bg-slate-700 text-white' : 'text-slate-500 hover:text-slate-700'}`}
+              className={`flex items-center gap-1 px-2 py-1.5 text-[10px] font-black uppercase tracking-wider rounded-sm transition-colors ${userRole === 'User' ? 'bg-slate-700 text-white' : 'text-slate-500 hover:text-slate-700'}`}
             >
-              <User className="w-3.5 h-3.5" /> User
+              <User className="w-3 h-3" /> User
             </button>
           </div>
         </div>
@@ -875,7 +881,7 @@ export default function App() {
       </div>
 
       {/* Main Content */}
-      <main className="max-w-7xl mx-auto p-4 sm:p-6 lg:p-8">
+      <main className="max-w-7xl mx-auto p-3 sm:p-6 lg:p-8">
         {activeTab === 'inventory' ? (
           <div className="space-y-4">
             {/* Search and Category Filter */}
@@ -1062,86 +1068,104 @@ export default function App() {
             </div>
 
             {/* Mobile Cards */}
-            <div className="md:hidden divide-y divide-slate-200">
+            <div className="md:hidden space-y-3">
               {filteredInventory.map((item) => (
-                <div key={item.id} className={`p-5 space-y-4 ${selectedItemIds.has(item.id) ? 'bg-slate-50' : ''}`}>
-                  <div className="flex justify-between items-start">
-                    <div className="flex items-start gap-3">
-                      {userRole === 'Admin' && (
-                        <input 
-                          type="checkbox" 
-                          className="w-4 h-4 mt-1 rounded-sm border-slate-300 text-[#0055A4] focus:ring-[#0055A4]"
-                          checked={selectedItemIds.has(item.id)}
-                          onChange={(e) => {
-                            const newSet = new Set(selectedItemIds);
-                            if (e.target.checked) newSet.add(item.id);
-                            else newSet.delete(item.id);
-                            setSelectedItemIds(newSet);
-                          }}
-                        />
-                      )}
-                      <div>
-                        <div className="flex items-center gap-2 mb-1">
-                          <span className="text-slate-500">
-                            {getCategoryIcon(item.category, "w-3.5 h-3.5")}
-                          </span>
-                          <div className="text-xs font-mono text-slate-500">{item.id}</div>
+                <div key={item.id} className={`bg-white border border-slate-200 rounded-sm overflow-hidden shadow-sm ${selectedItemIds.has(item.id) ? 'ring-1 ring-[#0055A4]' : ''}`}>
+                  <div className="p-4 space-y-4">
+                    <div className="flex justify-between items-start">
+                      <div className="flex items-start gap-3">
+                        {userRole === 'Admin' && (
+                          <input 
+                            type="checkbox" 
+                            className="w-4 h-4 mt-1 rounded-sm border-slate-300 text-[#0055A4] focus:ring-[#0055A4]"
+                            checked={selectedItemIds.has(item.id)}
+                            onChange={(e) => {
+                              const newSet = new Set(selectedItemIds);
+                              if (e.target.checked) newSet.add(item.id);
+                              else newSet.delete(item.id);
+                              setSelectedItemIds(newSet);
+                            }}
+                          />
+                        )}
+                        <div>
+                          <div className="text-[9px] font-mono font-black text-[#0055A4] uppercase tracking-widest mb-0.5">{item.id}</div>
+                          <div className="text-sm font-black uppercase tracking-tight text-slate-900 leading-tight">{item.name}</div>
                         </div>
-                        <div className="text-base font-bold text-slate-900">{item.name}</div>
                       </div>
+                      <span className="inline-flex items-center px-1.5 py-0.5 border border-slate-100 text-[8px] font-black uppercase tracking-widest bg-slate-50 text-slate-400">
+                        {item.category}
+                      </span>
                     </div>
-                    <div>
-                      {renderStatus(item)}
-                    </div>
-                  </div>
-                  
-                  <div className="flex flex-wrap gap-2 pt-2">
-                    <button 
-                      onClick={() => handleReportLowStock(item)}
-                      disabled={item.status === 'Low Stock' || item.status === 'Ordering' || isProcessing}
-                      className="flex-1 inline-flex justify-center items-center gap-1.5 px-3 py-2.5 text-xs font-bold uppercase tracking-wider rounded-sm bg-white text-rose-700 hover:bg-rose-50 transition-colors disabled:opacity-30 disabled:cursor-not-allowed border border-slate-200"
-                    >
-                      <AlertTriangle className="w-4 h-4" />
-                      Report
-                    </button>
                     
-                    {userRole === 'Admin' && (
-                      <>
+                    <div className="bg-slate-50 border-y border-slate-100 -mx-4 px-4 py-2 flex justify-between items-center">
+                      <div className="text-[8px] font-black text-slate-400 uppercase tracking-widest">System Status</div>
+                      <span className={`inline-flex items-center gap-1 text-[9px] font-black uppercase tracking-widest ${
+                        item.status === 'In Stock' ? 'text-emerald-600' :
+                        item.status === 'Low Stock' ? 'text-rose-600' :
+                        'text-[#0055A4]'
+                      }`}>
+                        {item.status === 'In Stock' && <CheckCircle2 className="w-3 h-3" />}
+                        {item.status === 'Low Stock' && <AlertTriangle className="w-3 h-3" />}
+                        {item.status === 'Ordering' && <PackagePlus className="w-3 h-3" />}
+                        {item.status}
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2">
+                      <button 
+                        onClick={() => handleReportLowStock(item)}
+                        disabled={item.status === 'Low Stock' || item.status === 'Ordering' || isProcessing}
+                        className="inline-flex justify-center items-center gap-1.5 px-3 py-2.5 text-[9px] font-black uppercase tracking-widest rounded-sm bg-rose-50 text-rose-700 hover:bg-rose-100 transition-colors disabled:opacity-30 border border-rose-100"
+                      >
+                        <AlertTriangle className="w-3.5 h-3.5" />
+                        Report
+                      </button>
+                      
+                      {userRole === 'Admin' ? (
                         <button 
                           onClick={() => handleRequestOrderClick(item)}
                           disabled={item.status === 'Ordering'}
-                          className="flex-1 inline-flex justify-center items-center gap-1.5 px-3 py-2.5 text-xs font-bold uppercase tracking-wider rounded-sm bg-white text-amber-700 hover:bg-amber-50 transition-colors disabled:opacity-30 disabled:cursor-not-allowed border border-slate-200"
+                          className="inline-flex justify-center items-center gap-1.5 px-3 py-2.5 text-[9px] font-black uppercase tracking-widest rounded-sm bg-amber-50 text-amber-700 hover:bg-amber-100 transition-colors disabled:opacity-30 border border-amber-100"
                         >
-                          <ShoppingCart className="w-4 h-4" />
+                          <ShoppingCart className="w-3.5 h-3.5" />
                           Order
                         </button>
+                      ) : (
+                        <button 
+                          onClick={() => setQrModal({ isOpen: true, item })}
+                          className="inline-flex justify-center items-center gap-1.5 px-3 py-2.5 text-[9px] font-black uppercase tracking-widest rounded-sm bg-slate-50 text-slate-700 hover:bg-slate-100 transition-colors border border-slate-100"
+                        >
+                          <QrCode className="w-3.5 h-3.5" />
+                          QR Code
+                        </button>
+                      )}
+                    </div>
+
+                    {userRole === 'Admin' && (
+                      <div className="grid grid-cols-3 gap-2">
                         <button 
                           onClick={() => handleRestock(item)}
-                          disabled={item.status === 'Normal' || isProcessing}
-                          className="flex-1 inline-flex justify-center items-center gap-1.5 px-3 py-2.5 text-xs font-bold uppercase tracking-wider rounded-sm bg-white text-emerald-700 hover:bg-emerald-50 transition-colors disabled:opacity-30 disabled:cursor-not-allowed border border-slate-200"
+                          disabled={item.status === 'In Stock' || isProcessing}
+                          className="inline-flex justify-center items-center gap-1.5 px-3 py-2.5 text-[9px] font-black uppercase tracking-widest rounded-sm bg-emerald-50 text-emerald-700 hover:bg-emerald-100 transition-colors disabled:opacity-30 border border-emerald-100"
                         >
-                          <PackagePlus className="w-4 h-4" />
+                          <PackagePlus className="w-3.5 h-3.5" />
                           Restock
                         </button>
-                      </>
-                    )}
-                  </div>
-                  <div className="flex gap-2">
-                    <button 
-                      onClick={() => setQrModal({ isOpen: true, item })}
-                      className="flex-1 inline-flex justify-center items-center gap-1.5 px-3 py-2.5 text-xs font-bold uppercase tracking-wider rounded-sm bg-white text-slate-700 hover:bg-slate-50 transition-colors border border-slate-200"
-                    >
-                      <QrCode className="w-4 h-4" />
-                      Label
-                    </button>
-                    {userRole === 'Admin' && (
-                      <button 
-                        onClick={() => handleDeleteClick(item)}
-                        className="flex-1 inline-flex justify-center items-center gap-1.5 px-3 py-2.5 text-xs font-bold uppercase tracking-wider rounded-sm bg-white text-slate-700 hover:bg-rose-50 hover:text-rose-600 transition-colors border border-slate-200"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                        Delete
-                      </button>
+                        <button 
+                          onClick={() => setQrModal({ isOpen: true, item })}
+                          className="inline-flex justify-center items-center gap-1.5 px-3 py-2.5 text-[9px] font-black uppercase tracking-widest rounded-sm bg-slate-50 text-slate-700 hover:bg-slate-100 transition-colors border border-slate-100"
+                        >
+                          <QrCode className="w-3.5 h-3.5" />
+                          QR
+                        </button>
+                        <button 
+                          onClick={() => handleDeleteClick(item)}
+                          className="inline-flex justify-center items-center gap-1.5 px-3 py-2.5 text-[9px] font-black uppercase tracking-widest rounded-sm bg-white text-slate-400 hover:bg-rose-50 hover:text-rose-600 transition-colors border border-slate-100"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                          Del
+                        </button>
+                      </div>
                     )}
                   </div>
                 </div>
@@ -1347,63 +1371,71 @@ export default function App() {
                 </div>
 
                 {/* Mobile Cards for Orders */}
-                <div className="md:hidden divide-y divide-slate-200">
+                <div className="md:hidden space-y-3">
                   {recentOrders.map((order) => (
-                    <div key={order.id} className={`p-5 space-y-3 ${selectedOrderIds.has(order.id) ? 'bg-slate-50' : ''}`}>
-                      <div className="flex justify-between items-start">
-                        <div className="flex items-start gap-3">
-                          {userRole === 'Admin' && (
-                            <input 
-                              type="checkbox" 
-                              className="w-4 h-4 mt-1 rounded-sm border-slate-300 text-[#0055A4] focus:ring-[#0055A4]"
-                              checked={selectedOrderIds.has(order.id)}
-                              onChange={(e) => {
-                                const newSet = new Set(selectedOrderIds);
-                                if (e.target.checked) newSet.add(order.id);
-                                else newSet.delete(order.id);
-                                setSelectedOrderIds(newSet);
-                              }}
-                            />
-                          )}
+                    <div key={order.id} className={`bg-white border border-slate-200 rounded-sm overflow-hidden shadow-sm ${selectedOrderIds.has(order.id) ? 'ring-1 ring-[#0055A4]' : ''}`}>
+                      <div className="p-4 space-y-4">
+                        <div className="flex justify-between items-start">
+                          <div className="flex items-start gap-3">
+                            {userRole === 'Admin' && (
+                              <input 
+                                type="checkbox" 
+                                className="w-4 h-4 mt-1 rounded-sm border-slate-300 text-[#0055A4] focus:ring-[#0055A4]"
+                                checked={selectedOrderIds.has(order.id)}
+                                onChange={(e) => {
+                                  const newSet = new Set(selectedOrderIds);
+                                  if (e.target.checked) newSet.add(order.id);
+                                  else newSet.delete(order.id);
+                                  setSelectedOrderIds(newSet);
+                                }}
+                              />
+                            )}
+                            <div>
+                              <div className="text-[9px] font-mono font-black text-[#0055A4] uppercase tracking-widest mb-0.5">{order.id}</div>
+                              <div className="text-sm font-black uppercase tracking-tight text-slate-900 leading-tight">{order.itemName}</div>
+                              <div className="text-[9px] font-mono text-slate-400 mt-1 uppercase tracking-widest">REF: {order.itemId}</div>
+                            </div>
+                          </div>
                           <div>
-                            <div className="text-xs font-mono text-slate-500 mb-1">{order.id}</div>
-                            <div className="text-base font-bold text-slate-900">{order.itemName}</div>
-                            <div className="text-xs font-mono text-slate-500">{order.itemId}</div>
+                            {order.status === 'Pending' ? (
+                              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 border border-amber-100 text-[8px] font-black uppercase tracking-widest bg-amber-50 text-amber-600">
+                                <AlertCircle className="w-3 h-3" />
+                                Pending
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 border border-emerald-100 text-[8px] font-black uppercase tracking-widest bg-emerald-50 text-emerald-600">
+                                <CheckCircle className="w-3 h-3" />
+                                Completed
+                              </span>
+                            )}
                           </div>
                         </div>
-                        <div>
-                          {order.status === 'Pending' ? (
-                            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-sm text-xs font-bold uppercase tracking-wider bg-amber-500/10 text-amber-400 border border-amber-500/20">
-                              <AlertCircle className="w-3.5 h-3.5" />
-                              Pending
-                            </span>
-                          ) : (
-                            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-sm text-xs font-bold uppercase tracking-wider bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                              <CheckCircle className="w-3.5 h-3.5" />
-                              Completed
-                            </span>
-                          )}
+                        
+                        <div className="grid grid-cols-2 gap-px bg-slate-100 border border-slate-100 -mx-4">
+                          <div className="bg-white p-3">
+                            <div className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1">Order Date</div>
+                            <div className="text-[11px] font-black text-slate-900">{order.date}</div>
+                          </div>
+                          <div className="bg-white p-3">
+                            <div className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1">Total Cost</div>
+                            <div className="text-sm font-mono font-black text-[#0055A4]">
+                              {order.cost ? `$${Number(order.cost).toFixed(2)}` : '-'}
+                            </div>
+                          </div>
                         </div>
-                      </div>
-                      
-                      <div className="flex justify-between items-center pt-2 border-t border-slate-100">
-                        <div className="text-sm text-slate-500">{order.date}</div>
-                        <div className="text-sm font-mono font-bold text-slate-700">
-                          {order.cost ? `$${Number(order.cost).toFixed(2)}` : '-'}
-                        </div>
-                      </div>
 
-                      {userRole === 'Admin' && (
-                        <div className="pt-2">
-                          <button 
-                            onClick={() => setDeleteOrderModal({ isOpen: true, orderIds: [order.id] })}
-                            className="w-full inline-flex justify-center items-center gap-1.5 px-3 py-2.5 text-xs font-bold uppercase tracking-wider rounded-sm bg-white text-slate-700 hover:bg-rose-50 hover:text-rose-600 transition-colors border border-slate-200"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                            Delete Record
-                          </button>
-                        </div>
-                      )}
+                        {userRole === 'Admin' && (
+                          <div className="pt-1">
+                            <button 
+                              onClick={() => setDeleteOrderModal({ isOpen: true, orderIds: [order.id] })}
+                              className="w-full inline-flex justify-center items-center gap-1.5 px-3 py-2.5 text-[9px] font-black uppercase tracking-widest rounded-sm bg-white text-slate-400 hover:bg-rose-50 hover:text-rose-600 transition-colors border border-slate-100"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                              Delete Record
+                            </button>
+                          </div>
+                        )}
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -1448,10 +1480,10 @@ export default function App() {
               <div className="hidden md:block overflow-x-auto">
                 <table className="w-full text-left border-collapse">
                   <thead>
-                    <tr className="bg-slate-50 border-b border-slate-200 text-xs font-bold text-slate-500 uppercase tracking-widest">
-                      <th className="p-5">Item</th>
-                      <th className="p-5">Current Reference</th>
-                      <th className="p-5">Update Reference</th>
+                    <tr className="bg-slate-50 border-b border-slate-200 text-[10px] font-black text-slate-500 uppercase tracking-widest">
+                      <th className="p-5">Item Details</th>
+                      <th className="p-5">Current Supplier References</th>
+                      <th className="p-5">Update Reference Data</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-200">
@@ -1461,22 +1493,22 @@ export default function App() {
                         <tr key={item.id} className="hover:bg-slate-50 transition-colors">
                           <td className="p-5 align-top">
                             <div className="flex flex-col">
-                              <span className="font-bold text-slate-900">{item.name}</span>
-                              <span className="text-xs font-mono text-slate-500">{item.id}</span>
+                              <span className="text-[10px] font-mono font-black text-[#0055A4] uppercase tracking-widest mb-1">{item.id}</span>
+                              <span className="text-sm font-black uppercase tracking-tight text-slate-900">{item.name}</span>
                             </div>
                           </td>
                           <td className="p-5 align-top">
                             {itemRefs.length > 0 ? (
                               <div className="space-y-2">
                                 {itemRefs.map((ref, idx) => (
-                                  <div key={idx} className="flex justify-between items-center text-sm bg-white border border-slate-200 p-2 rounded-sm">
-                                    <span className="font-medium text-slate-700">{ref.supplierName}</span>
-                                    <span className="font-mono text-slate-900">${Number(ref.price).toFixed(2)}</span>
+                                  <div key={idx} className="flex justify-between items-center text-sm bg-white border border-slate-200 p-3 rounded-sm">
+                                    <span className="text-[10px] font-black text-slate-700 uppercase tracking-widest">{ref.supplierName}</span>
+                                    <span className="font-mono text-[#0055A4] font-black text-sm">${Number(ref.price).toFixed(2)}</span>
                                   </div>
                                 ))}
                               </div>
                             ) : (
-                              <span className="text-xs text-slate-400 italic">No references</span>
+                              <span className="text-[10px] text-slate-400 italic font-black uppercase tracking-widest">No references found</span>
                             )}
                           </td>
                           <td className="p-5 align-top">
@@ -1513,7 +1545,7 @@ export default function App() {
                                 placeholder="Supplier Name"
                                 defaultValue={itemRefs.length > 0 ? itemRefs[0].supplierName : ''}
                                 required
-                                className="flex-1 px-3 py-2 bg-white border border-slate-300 rounded-sm text-sm focus:outline-none focus:ring-2 focus:ring-[#0055A4] focus:border-transparent"
+                                className="flex-1 px-3 py-2.5 bg-white border border-slate-200 rounded-sm text-[10px] font-black uppercase tracking-widest focus:outline-none focus:ring-1 focus:ring-[#0055A4] focus:border-transparent placeholder:text-slate-300"
                               />
                               <input
                                 name="price"
@@ -1523,12 +1555,12 @@ export default function App() {
                                 placeholder="Price ($)"
                                 defaultValue={itemRefs.length > 0 ? itemRefs[0].price : ''}
                                 required
-                                className="w-24 px-3 py-2 bg-white border border-slate-300 rounded-sm text-sm focus:outline-none focus:ring-2 focus:ring-[#0055A4] focus:border-transparent"
+                                className="w-32 px-3 py-2.5 bg-white border border-slate-200 rounded-sm text-[10px] font-mono font-black focus:outline-none focus:ring-1 focus:ring-[#0055A4] focus:border-transparent placeholder:text-slate-300"
                               />
                               <button
                                 type="submit"
                                 disabled={isProcessing}
-                                className="px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold uppercase tracking-wider rounded-sm transition-colors disabled:opacity-50"
+                                className="px-4 py-2.5 bg-[#0055A4] hover:bg-[#004488] text-white text-[10px] font-black uppercase tracking-widest rounded-sm transition-colors disabled:opacity-50"
                               >
                                 Save
                               </button>
@@ -1546,30 +1578,30 @@ export default function App() {
                 {filteredInventory.map((item) => {
                   const itemRefs = allPriceReferences.filter(ref => ref.itemId === item.id);
                   return (
-                    <div key={item.id} className="p-5 space-y-4">
-                      <div>
-                        <div className="text-xs font-mono text-slate-500 mb-1">{item.id}</div>
-                        <div className="text-base font-bold text-slate-900">{item.name}</div>
-                      </div>
+                      <div className="p-4 space-y-4">
+                        <div>
+                          <div className="text-[9px] font-mono font-black text-[#0055A4] uppercase tracking-widest mb-0.5">{item.id}</div>
+                          <div className="text-sm font-black uppercase tracking-tight text-slate-900 leading-tight">{item.name}</div>
+                        </div>
                       
-                      <div className="bg-slate-50 p-3 rounded-sm border border-slate-100">
-                        <div className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">Current References</div>
-                        {itemRefs.length > 0 ? (
-                          <div className="space-y-2">
-                            {itemRefs.map((ref, idx) => (
-                              <div key={idx} className="flex justify-between items-center text-sm bg-white border border-slate-200 p-2 rounded-sm">
-                                <span className="font-medium text-slate-700">{ref.supplierName}</span>
-                                <span className="font-mono text-slate-900 font-bold">${Number(ref.price).toFixed(2)}</span>
-                              </div>
-                            ))}
-                          </div>
-                        ) : (
-                          <span className="text-xs text-slate-400 italic">No references found</span>
-                        )}
-                      </div>
+                        <div className="bg-slate-50 p-3 border border-slate-100 -mx-4">
+                          <div className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-2">Current References</div>
+                          {itemRefs.length > 0 ? (
+                            <div className="space-y-2">
+                              {itemRefs.map((ref, idx) => (
+                                <div key={idx} className="flex justify-between items-center text-sm bg-white border border-slate-100 p-2">
+                                  <span className="font-black text-slate-700 uppercase tracking-widest text-[9px]">{ref.supplierName}</span>
+                                  <span className="font-mono text-[#0055A4] font-black text-xs">${Number(ref.price).toFixed(2)}</span>
+                                </div>
+                              ))}
+                            </div>
+                          ) : (
+                            <span className="text-[9px] text-slate-400 italic font-black uppercase tracking-widest">No references found</span>
+                          )}
+                        </div>
 
-                      <div>
-                        <div className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">Update Reference</div>
+                        <div>
+                          <div className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-2">Update Reference</div>
                         <form 
                           onSubmit={async (e) => {
                             e.preventDefault();
@@ -1597,33 +1629,33 @@ export default function App() {
                           }}
                           className="flex flex-col gap-2"
                         >
-                          <input
-                            name="supplier"
-                            type="text"
-                            placeholder="Supplier Name"
-                            defaultValue={itemRefs.length > 0 ? itemRefs[0].supplierName : ''}
-                            required
-                            className="w-full px-3 py-2.5 bg-white border border-slate-300 rounded-sm text-sm focus:outline-none focus:ring-2 focus:ring-[#0055A4] focus:border-transparent"
-                          />
-                          <div className="flex gap-2">
                             <input
-                              name="price"
-                              type="number"
-                              step="0.01"
-                              min="0"
-                              placeholder="Price ($)"
-                              defaultValue={itemRefs.length > 0 ? itemRefs[0].price : ''}
+                              name="supplier"
+                              type="text"
+                              placeholder="Supplier Name"
+                              defaultValue={itemRefs.length > 0 ? itemRefs[0].supplierName : ''}
                               required
-                              className="flex-1 px-3 py-2.5 bg-white border border-slate-300 rounded-sm text-sm focus:outline-none focus:ring-2 focus:ring-[#0055A4] focus:border-transparent"
+                              className="w-full px-3 py-2.5 bg-white border border-slate-200 rounded-sm text-[10px] font-black uppercase tracking-widest focus:outline-none focus:ring-1 focus:ring-[#0055A4] focus:border-transparent placeholder:text-slate-300"
                             />
-                            <button
-                              type="submit"
-                              disabled={isProcessing}
-                              className="px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold uppercase tracking-wider rounded-sm transition-colors disabled:opacity-50"
-                            >
-                              Save
-                            </button>
-                          </div>
+                            <div className="flex gap-2">
+                              <input
+                                name="price"
+                                type="number"
+                                step="0.01"
+                                min="0"
+                                placeholder="Price ($)"
+                                defaultValue={itemRefs.length > 0 ? itemRefs[0].price : ''}
+                                required
+                                className="flex-1 px-3 py-2.5 bg-white border border-slate-200 rounded-sm text-[10px] font-mono font-black focus:outline-none focus:ring-1 focus:ring-[#0055A4] focus:border-transparent placeholder:text-slate-300"
+                              />
+                              <button
+                                type="submit"
+                                disabled={isProcessing}
+                                className="px-4 py-2.5 bg-[#0055A4] hover:bg-[#004488] text-white text-[10px] font-black uppercase tracking-widest rounded-sm transition-colors disabled:opacity-50"
+                              >
+                                Save
+                              </button>
+                            </div>
                         </form>
                       </div>
                     </div>

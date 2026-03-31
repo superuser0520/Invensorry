@@ -1256,7 +1256,7 @@ export default function App() {
                       </div>
                     </div>
                   )}
-                  <div className="overflow-x-auto">
+                  <div className="hidden md:block overflow-x-auto">
                     <table className="w-full text-left border-collapse">
                       <thead>
                         <tr className="bg-slate-50 border-b border-slate-200 text-xs font-bold text-slate-500 uppercase tracking-widest">
@@ -1345,6 +1345,68 @@ export default function App() {
                     </tbody>
                   </table>
                 </div>
+
+                {/* Mobile Cards for Orders */}
+                <div className="md:hidden divide-y divide-slate-200">
+                  {recentOrders.map((order) => (
+                    <div key={order.id} className={`p-5 space-y-3 ${selectedOrderIds.has(order.id) ? 'bg-slate-50' : ''}`}>
+                      <div className="flex justify-between items-start">
+                        <div className="flex items-start gap-3">
+                          {userRole === 'Admin' && (
+                            <input 
+                              type="checkbox" 
+                              className="w-4 h-4 mt-1 rounded-sm border-slate-300 text-[#0055A4] focus:ring-[#0055A4]"
+                              checked={selectedOrderIds.has(order.id)}
+                              onChange={(e) => {
+                                const newSet = new Set(selectedOrderIds);
+                                if (e.target.checked) newSet.add(order.id);
+                                else newSet.delete(order.id);
+                                setSelectedOrderIds(newSet);
+                              }}
+                            />
+                          )}
+                          <div>
+                            <div className="text-xs font-mono text-slate-500 mb-1">{order.id}</div>
+                            <div className="text-base font-bold text-slate-900">{order.itemName}</div>
+                            <div className="text-xs font-mono text-slate-500">{order.itemId}</div>
+                          </div>
+                        </div>
+                        <div>
+                          {order.status === 'Pending' ? (
+                            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-sm text-xs font-bold uppercase tracking-wider bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                              <AlertCircle className="w-3.5 h-3.5" />
+                              Pending
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-sm text-xs font-bold uppercase tracking-wider bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                              <CheckCircle className="w-3.5 h-3.5" />
+                              Completed
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      
+                      <div className="flex justify-between items-center pt-2 border-t border-slate-100">
+                        <div className="text-sm text-slate-500">{order.date}</div>
+                        <div className="text-sm font-mono font-bold text-slate-700">
+                          {order.cost ? `$${Number(order.cost).toFixed(2)}` : '-'}
+                        </div>
+                      </div>
+
+                      {userRole === 'Admin' && (
+                        <div className="pt-2">
+                          <button 
+                            onClick={() => setDeleteOrderModal({ isOpen: true, orderIds: [order.id] })}
+                            className="w-full inline-flex justify-center items-center gap-1.5 px-3 py-2.5 text-xs font-bold uppercase tracking-wider rounded-sm bg-white text-slate-700 hover:bg-rose-50 hover:text-rose-600 transition-colors border border-slate-200"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                            Delete Record
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
                 </>
               )}
             </div>
@@ -1383,7 +1445,7 @@ export default function App() {
             </div>
             
             <div className="bg-white rounded-sm shadow-sm border border-slate-200 overflow-hidden">
-              <div className="overflow-x-auto">
+              <div className="hidden md:block overflow-x-auto">
                 <table className="w-full text-left border-collapse">
                   <thead>
                     <tr className="bg-slate-50 border-b border-slate-200 text-xs font-bold text-slate-500 uppercase tracking-widest">
@@ -1477,6 +1539,96 @@ export default function App() {
                     })}
                   </tbody>
                 </table>
+              </div>
+
+              {/* Mobile Cards for Price References */}
+              <div className="md:hidden divide-y divide-slate-200">
+                {filteredInventory.map((item) => {
+                  const itemRefs = allPriceReferences.filter(ref => ref.itemId === item.id);
+                  return (
+                    <div key={item.id} className="p-5 space-y-4">
+                      <div>
+                        <div className="text-xs font-mono text-slate-500 mb-1">{item.id}</div>
+                        <div className="text-base font-bold text-slate-900">{item.name}</div>
+                      </div>
+                      
+                      <div className="bg-slate-50 p-3 rounded-sm border border-slate-100">
+                        <div className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">Current References</div>
+                        {itemRefs.length > 0 ? (
+                          <div className="space-y-2">
+                            {itemRefs.map((ref, idx) => (
+                              <div key={idx} className="flex justify-between items-center text-sm bg-white border border-slate-200 p-2 rounded-sm">
+                                <span className="font-medium text-slate-700">{ref.supplierName}</span>
+                                <span className="font-mono text-slate-900 font-bold">${Number(ref.price).toFixed(2)}</span>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <span className="text-xs text-slate-400 italic">No references found</span>
+                        )}
+                      </div>
+
+                      <div>
+                        <div className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">Update Reference</div>
+                        <form 
+                          onSubmit={async (e) => {
+                            e.preventDefault();
+                            const form = e.currentTarget;
+                            const supplierInput = form.elements.namedItem('supplier') as HTMLInputElement;
+                            const priceInput = form.elements.namedItem('price') as HTMLInputElement;
+                            const supplier = supplierInput.value;
+                            const price = parseFloat(priceInput.value);
+                            
+                            if (!supplier || isNaN(price)) return;
+                            
+                            setIsProcessing(true);
+                            try {
+                              await api.savePriceReference(item.id, supplier, price);
+                              const newRefs = await api.getAllPriceReferences();
+                              setAllPriceReferences(newRefs);
+                              supplierInput.value = '';
+                              priceInput.value = '';
+                              toast.success(`Price updated for ${item.name}`);
+                            } catch (error) {
+                              toast.error(error instanceof Error ? error.message : "Failed to save price reference");
+                            } finally {
+                              setIsProcessing(false);
+                            }
+                          }}
+                          className="flex flex-col gap-2"
+                        >
+                          <input
+                            name="supplier"
+                            type="text"
+                            placeholder="Supplier Name"
+                            defaultValue={itemRefs.length > 0 ? itemRefs[0].supplierName : ''}
+                            required
+                            className="w-full px-3 py-2.5 bg-white border border-slate-300 rounded-sm text-sm focus:outline-none focus:ring-2 focus:ring-[#0055A4] focus:border-transparent"
+                          />
+                          <div className="flex gap-2">
+                            <input
+                              name="price"
+                              type="number"
+                              step="0.01"
+                              min="0"
+                              placeholder="Price ($)"
+                              defaultValue={itemRefs.length > 0 ? itemRefs[0].price : ''}
+                              required
+                              className="flex-1 px-3 py-2.5 bg-white border border-slate-300 rounded-sm text-sm focus:outline-none focus:ring-2 focus:ring-[#0055A4] focus:border-transparent"
+                            />
+                            <button
+                              type="submit"
+                              disabled={isProcessing}
+                              className="px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold uppercase tracking-wider rounded-sm transition-colors disabled:opacity-50"
+                            >
+                              Save
+                            </button>
+                          </div>
+                        </form>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             </div>
           </div>
